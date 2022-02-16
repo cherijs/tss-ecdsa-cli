@@ -5,7 +5,7 @@ use curv::BigInt;
 use serde::{Deserialize, Serialize};
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::{ShamirSecretSharing, VerifiableSS};
 use paillier::{DecryptionKey, EncryptionKey};
-use curv::elliptic::curves::Secp256k1;
+use curv::elliptic::curves::{Scalar, Secp256k1};
 use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{Keys, SharedKeys};
 use crate::ecdsa::{FE, GE};
 
@@ -100,9 +100,17 @@ pub fn convert_store_file(keys_file_path: String, destination_path: String) {
         .iter()
         .map(|x| convert_old_vss(x))
         .collect();
-    
+
+    //In previous versions, GE::generator() has been used as chain code. Thus, in order
+    //to keep backward compatibility, we set chain_code=1 so when multiplied by GE::generator()
+    //produces the same chain code as before.
+    //Please note that from this version onwards, we store chain code as a scalar, and upon use,
+    //multiply it by generator to create a point as before.
+    let fixed_chain_code = Scalar::<Secp256k1>::from(1 as u16);
+
     let keygen_json = serde_json::to_string(&(
         party_keys,
+        fixed_chain_code,
         shared_keys,
         party_id,
         vss_scheme_vector,

@@ -19,6 +19,7 @@ use crate::common::{
     poll_for_p2p, sendp2p, Params, PartySignup, AEAD,
     signup, Client
 };
+use crate::curves::{generate_shared_chain_code};
 use crate::ecdsa::{CURVE_NAME, FE, GE};
 
 pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
@@ -47,6 +48,16 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
     println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
 
     let party_keys = Keys::create(party_num_int);
+
+    let chain_code = generate_shared_chain_code::<Secp256k1, Sha256>(
+        client.clone(),
+        party_num_int,
+        PARTIES,
+        uuid.clone(),
+        delay,
+        params.share_count as usize
+    );
+
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
 
     // send commitment to ephemeral public keys, get round 1 commitments of other parties
@@ -244,6 +255,7 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
 
     let keygen_json = serde_json::to_string(&(
         party_keys,
+        chain_code,
         shared_keys,
         party_num_int,
         vss_scheme_vec,

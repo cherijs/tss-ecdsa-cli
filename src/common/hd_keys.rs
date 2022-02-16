@@ -9,10 +9,7 @@ use hmac::Hmac;
 use sha2::{Sha512};
 
 
-pub fn get_hd_key<E: Curve>(y_sum: &Point<E>, path_vector: Vec<BigInt>) -> (Point<E>, Scalar<E>) {
-    // generate a random but shared chain code, this will do
-    let chain_code = Point::<E>::generator();
-    //    println!("chain code {:?}", chain_code);
+pub fn get_hd_key<E: Curve>(y_sum: &Point<E>, path_vector: Vec<BigInt>, chain_code: Point<E>) -> (Point<E>, Scalar<E>) {
     // derive a new pubkey and LR sequence, y_sum becomes a new child pub key
     let (y_sum_child, f_l_new, _cc_new) = hd_key(
         path_vector,

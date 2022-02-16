@@ -67,14 +67,22 @@ pub fn check_sig(
 }
 
 
-pub fn run_pubkey_or_sign(action:&str, keysfile_path:&str, path:&str, message_str:&str, manager_addr:String, params:Vec<&str>) -> Value {
-
+pub fn run_pubkey_or_sign(
+    action:&str,
+    keysfile_path:&str,
+    path:&str,
+    message_str:&str,
+    manager_addr:String,
+    params:Vec<&str>
+) -> Value
+{
     // Read data from keys file
     let data = fs::read_to_string(keysfile_path).expect(
         format!("Unable to load keys file at location: {}", keysfile_path).as_str(),
     );
-    let (party_keys, shared_keys, party_id, mut vss_scheme_vec, paillier_key_vector, y_sum): (
+    let (party_keys, chain_code, shared_keys, party_id, mut vss_scheme_vec, paillier_key_vector, y_sum): (
         Keys,
+        Scalar<Secp256k1>,
         SharedKeys,
         u16,
         Vec<VerifiableSS<Secp256k1>>,
@@ -90,7 +98,8 @@ pub fn run_pubkey_or_sign(action:&str, keysfile_path:&str, path:&str, message_st
                 .split('/')
                 .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
                 .collect();
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone());
+            let chain_code= GE::generator() * chain_code;
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone(), chain_code);
             (f_l_new, y_sum_child.clone())
         }
     };

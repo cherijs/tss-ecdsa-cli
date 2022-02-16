@@ -47,8 +47,9 @@ pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
     let data = fs::read_to_string(keys_file_path).expect(
         format!("Unable to load keys file at location: {}", keys_file_path).as_str(),
     );
-    let (_party_keys, _shared_keys, _party_id, _vss_scheme_vec, y_sum): (
+    let (_party_keys, chain_code, _shared_keys, _party_id, _vss_scheme_vec, y_sum): (
         Keys,
+        Scalar<Ed25519>,
         SharedKeys,
         u16,
         Vec<VerifiableSS<Ed25519>>,
@@ -63,7 +64,9 @@ pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
                 .split('/')
                 .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
                 .collect();
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone());
+
+            let chain_code= chain_code * GE::generator();
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone(), chain_code);
 
             let safe_public_key_child = update_hd_derived_public_key(y_sum_child);
 

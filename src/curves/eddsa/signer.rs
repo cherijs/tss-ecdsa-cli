@@ -32,8 +32,9 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
 
     let data = fs::read_to_string(key_file_path)
         .expect("Unable to load keys, did you run keygen first? ");
-    let (party_keys, mut shared_keys, _, vss_scheme_vec, Y): (
+    let (party_keys, chain_code, mut shared_keys, _, vss_scheme_vec, Y): (
         Keys,
+        Scalar<Ed25519>,
         SharedKeys,
         u16,
         Vec<VerifiableSS<Ed25519>>,
@@ -49,9 +50,19 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
                 .split('/')
                 .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
                 .collect();
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&Y, path_vector.clone());
 
-            let safe_public_key_child = update_hd_derived_public_key(y_sum_child);
+            let chain_code = chain_code * GE::generator();
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(
+                &Y,
+                path_vector.clone(),
+                chain_code
+            );
+
+            let safe_public_key_child =
+                update_hd_derived_public_key(
+                    y_sum_child
+                )
+                ;
 
             (safe_public_key_child, f_l_new)
         }

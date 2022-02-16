@@ -5,14 +5,13 @@ use curv::BigInt;
 use curv::cryptographic_primitives::proofs::sigma_dlog::DLogProof;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use curv::elliptic::curves::{Ed25519};
-use multi_party_eddsa::Error;
-use multi_party_eddsa::Error::InvalidKey;
 use multi_party_eddsa::protocols::thresholdsig::{KeyGenBroadcastMessage1, KeyGenDecommitMessage1, Keys, Parameters};
 use sha2::Sha512;
 
 use crate::common::{AEAD, aes_decrypt, aes_encrypt, AES_KEY_BYTES_LEN,
                     broadcast, Client, Params, PartySignup, poll_for_broadcasts,
                     poll_for_p2p, sendp2p, signup};
+use crate::curves::{generate_shared_chain_code, verify_dlog_proofs};
 use crate::eddsa::{CURVE_NAME, FE, GE};
 
 
@@ -41,6 +40,15 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
 
     let party_keys = Keys::phase1_create(party_num_int);
     let (bc_i, decom_i) = party_keys.phase1_broadcast();
+
+    let chain_code = generate_shared_chain_code::<Ed25519, Sha512>(
+        client.clone(),
+        party_num_int,
+        PARTIES,
+        uuid.clone(),
+        delay,
+        parameters.share_count as usize
+    );
 
     // send commitment to ephemeral public keys, get round 1 commitments of other parties
     assert!(broadcast(
@@ -239,11 +247,16 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
             j += 1;
         }
     }
-    verify_dlog_proofs(&parameters, &dlog_proof_vec, &point_vec)
-        .expect("bad dlog proof");
+
+    verify_dlog_proofs(
+        parameters.share_count as usize,
+        &dlog_proof_vec,
+        point_vec.len(),
+    ).expect("bad dlog proof");
 
     let keygen_json = serde_json::to_string(&(
         party_keys,
+        chain_code,
         shared_keys,
         party_num_int,
         vss_scheme_vec,
@@ -252,23 +265,4 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         .unwrap();
 
     fs::write(keys_file_path, keygen_json).expect("Unable to save !");
-}
-
-
-pub fn verify_dlog_proofs(
-    params: &Parameters,
-    dlog_proofs_vec: &[DLogProof<Ed25519, Sha512>],
-    y_vec: &[GE],
-) -> Result<(), Error> {
-    assert_eq!(y_vec.len(), usize::from(params.share_count));
-    assert_eq!(dlog_proofs_vec.len(), usize::from(params.share_count));
-
-    let xi_dlog_verify =
-        (0..y_vec.len()).all(|i| DLogProof::verify(&dlog_proofs_vec[i]).is_ok());
-
-    if xi_dlog_verify {
-        Ok(())
-    } else {
-        Err(InvalidKey)
-    }
 }
