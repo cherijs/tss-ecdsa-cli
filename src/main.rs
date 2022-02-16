@@ -8,6 +8,7 @@ extern crate paillier;
 extern crate reqwest;
 extern crate serde_json;
 
+use std::env;
 use clap::{App, AppSettings, Arg, SubCommand};
 
 use common::{manager};
@@ -44,9 +45,9 @@ fn main() {
                     .long("addr")
                     .takes_value(true)
                     .help("URL to manager. E.g. http://127.0.0.2:8002"))
-                .arg(Arg::with_name("curve")
-                    .short("c")
-                    .long("curve")
+                .arg(Arg::with_name("algorithm")
+                    .short("l")
+                    .long("alg")
                     .takes_value(true)
                     .help("Either ecdsa (default) or eddsa")),
             SubCommand::with_name("pubkey").about("Get X,Y of a pub key")
@@ -60,11 +61,16 @@ fn main() {
                     .long("path")
                     .takes_value(true)
                     .help("Derivation path (Optional)"))
-                .arg(Arg::with_name("curve")
-                    .short("c")
-                    .long("curve")
+                .arg(Arg::with_name("algorithm")
+                    .short("l")
+                    .long("alg")
                     .takes_value(true)
-                    .help("Either ecdsa (default) or eddsa")),
+                    .help("Either ecdsa (default) or eddsa"))
+                .arg(Arg::with_name("chain_code")
+                    .short("c")
+                    .long("cc")
+                    .takes_value(true)
+                    .help("Hex representation of chain_code")),
             SubCommand::with_name("sign").about("Run signer")
                 .arg(Arg::with_name("keysfile")
                     .required(true)
@@ -86,16 +92,21 @@ fn main() {
                     .long("path")
                     .takes_value(true)
                     .help("Derivation path"))
-                .arg(Arg::with_name("curve")
-                    .short("c")
-                    .long("curve")
+                .arg(Arg::with_name("algorithm")
+                    .short("l")
+                    .long("alg")
                     .takes_value(true)
                     .help("Either ecdsa (default) or eddsa"))
                 .arg(Arg::with_name("manager_addr")
                     .short("a")
                     .long("addr")
                     .takes_value(true)
-                    .help("URL to manager")),
+                    .help("URL to manager"))
+                .arg(Arg::with_name("chain_code")
+                    .short("c")
+                    .long("cc")
+                    .takes_value(true)
+                    .help("Hex representation of chain_code")),
             SubCommand::with_name("convert_curv_07_to_09").about("Convert format of store files from v0.1.0 to v0.2.0")
                 .arg(Arg::with_name("input_file")
                     .required(true)
@@ -116,6 +127,12 @@ fn main() {
             let path = sub_matches.value_of("path").unwrap_or("");
             let message_str = sub_matches.value_of("message").unwrap_or("");
             let curve = sub_matches.value_of("curve").unwrap_or("ecdsa");
+            let chain_code_in_env = match env::var("TSS_CLI_CHAIN_CODE") {
+                Ok(val) => val,
+                Err(_e) => "".to_string(),
+            };
+            let chain_code = sub_matches.value_of("chain_code").unwrap_or(chain_code_in_env.as_str());
+
             let manager_addr = sub_matches
                 .value_of("manager_addr")
                 .unwrap_or("http://127.0.0.1:8001")
@@ -128,7 +145,7 @@ fn main() {
                 .collect();
             let action = matches.subcommand_name().unwrap();
             let result = match curve {
-                "ecdsa" => ecdsa::run_pubkey_or_sign(action, keysfile_path, path, message_str, manager_addr, params),
+                "ecdsa" => ecdsa::run_pubkey_or_sign(action, keysfile_path, path, message_str, manager_addr, params, chain_code),
                 "eddsa" => match action {
                     "sign" => eddsa::sign(manager_addr, keysfile_path.to_string(), params, message_str.to_string(), path),
                     "pubkey" => eddsa::run_pubkey(keysfile_path, path),
