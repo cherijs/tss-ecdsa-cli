@@ -126,7 +126,7 @@ fn main() {
             let keysfile_path = sub_matches.value_of("keysfile").unwrap_or("");
             let path = sub_matches.value_of("path").unwrap_or("");
             let message_str = sub_matches.value_of("message").unwrap_or("");
-            let curve = sub_matches.value_of("curve").unwrap_or("ecdsa");
+            let curve = sub_matches.value_of("algorithm").unwrap_or("ecdsa");
             let chain_code_in_env = match env::var("TSS_CLI_CHAIN_CODE") {
                 Ok(val) => val,
                 Err(_e) => "".to_string(),
@@ -164,7 +164,7 @@ fn main() {
                 .unwrap_or("http://127.0.0.1:8001")
                 .to_string();
             let keysfile_path = sub_matches.value_of("keysfile").unwrap_or("").to_string();
-            let curve = sub_matches.value_of("curve").unwrap_or("ecdsa");
+            let curve = sub_matches.value_of("algorithm").unwrap_or("ecdsa");
             let params: Vec<&str> = sub_matches
                 .value_of("params")
                 .unwrap_or("")
