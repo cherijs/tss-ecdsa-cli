@@ -105,7 +105,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
             let decom_j: KeyGenDecommitMessage1 = serde_json::from_str::<KeyGenDecommitMessage1>(&round2_ans_vec[j]).unwrap();
             point_vec.push(decom_j.clone().y_i);
             blind_vec.push(decom_j.clone().blind_factor);
-            let key_bn: BigInt = (decom_j.y_i * party_keys.keypair.expended_private_key.private_key.clone()).x_coord().unwrap();
+            let key_bn: BigInt = (decom_j.y_i * party_keys.keypair.expanded_private_key.private_key.clone()).x_coord().unwrap();
             let key_bytes = BigInt::to_bytes(&key_bn);
             let mut template: Vec<u8> = vec![0u8; AES_KEY_BYTES_LEN - key_bytes.len()];
             template.extend_from_slice(&key_bytes[..]);

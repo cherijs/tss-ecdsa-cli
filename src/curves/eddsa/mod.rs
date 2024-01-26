@@ -2,8 +2,7 @@ use std::fs;
 use curv::arithmetic::Converter;
 use curv::BigInt;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-use curv::elliptic::curves::{Ed25519, Scalar};
-use multi_party_eddsa::protocols::{FE, GE};
+use curv::elliptic::curves::{Ed25519, Scalar, Point};
 use multi_party_eddsa::protocols::thresholdsig::{Keys, SharedKeys};
 use serde_json::{json, Value};
 use crate::common::Params;
@@ -13,6 +12,9 @@ use crate::hd_keys;
 pub mod keygen;
 pub mod signer;
 mod test;
+
+pub type FE = Scalar<Ed25519>;
+pub type GE = Point<Ed25519>;
 
 pub static CURVE_NAME: &str = "EdDSA";
 
