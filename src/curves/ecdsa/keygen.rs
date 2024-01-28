@@ -14,11 +14,7 @@ use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
 use paillier::EncryptionKey;
 use sha2::{Sha256};
 
-use crate::common::{
-    aes_decrypt, aes_encrypt, broadcast, poll_for_broadcasts,
-    poll_for_p2p, sendp2p, Params, PartySignup, AEAD,
-    signup, Client
-};
+use crate::common::{aes_decrypt, aes_encrypt, broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, Params, PartySignup, AEAD, Client, keygen_signup};
 use crate::curves::{generate_shared_chain_code};
 use crate::ecdsa::{CURVE_NAME, FE, GE};
 
@@ -41,10 +37,10 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
         parties: PARTIES.to_string(),
     };
 
-    let signup_path = "signupkeygen";
-    let (party_num_int, uuid) = match signup(signup_path, &client, &tn_params, CURVE_NAME.clone()).unwrap() {
+    let (party_num_int, uuid) = match keygen_signup(&client, &tn_params, CURVE_NAME).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
+
     println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
 
     let party_keys = Keys::create(party_num_int);

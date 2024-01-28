@@ -62,13 +62,8 @@ pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
     let (_f_l_new, y_sum): (FE, GE) = match path.is_empty() {
         true => (Scalar::<Ed25519>::zero(), y_sum),
         false => {
-            let path_vector: Vec<BigInt> = path
-                .split('/')
-                .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
-                .collect();
-
             let chain_code= chain_code * GE::generator();
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone(), chain_code);
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path, chain_code);
 
             let safe_public_key_child = update_hd_derived_public_key(y_sum_child);
 

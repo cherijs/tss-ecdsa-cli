@@ -10,7 +10,7 @@ use multi_party_eddsa::protocols::thresholdsig::{
     SharedKeys
 };
 use sha2::{Sha512, Digest};
-use crate::common::{AEAD, aes_decrypt, aes_encrypt, AES_KEY_BYTES_LEN, broadcast, Client, hd_keys, Params, PartySignup, poll_for_broadcasts, poll_for_p2p, sendp2p, signup};
+use crate::common::{AEAD, aes_decrypt, aes_encrypt, AES_KEY_BYTES_LEN, broadcast, Client, hd_keys, Params, PartySignup, poll_for_broadcasts, poll_for_p2p, sendp2p, sha256_digest, signup};
 use crate::eddsa::{CURVE_NAME, FE, GE};
 
 
@@ -30,7 +30,7 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
 
     let data = fs::read_to_string(key_file_path)
         .expect("Unable to load keys, did you run keygen first? ");
-    let (party_keys, chain_code, mut shared_keys, _, vss_scheme_vec, Y): (
+    let (party_keys, chain_code, mut shared_keys, party_id, vss_scheme_vec, Y): (
         Keys,
         Scalar<Ed25519>,
         SharedKeys,
@@ -44,15 +44,10 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     let (Y, f_l_new) = match path.is_empty() {
         true => (Y, FE::zero()),
         false => {
-            let path_vector: Vec<BigInt> = path
-                .split('/')
-                .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
-                .collect();
-
             let chain_code = chain_code * GE::generator();
             let (y_sum_child, f_l_new) = hd_keys::get_hd_key(
                 &Y,
-                path_vector.clone(),
+                path,
                 chain_code
             );
 
@@ -68,10 +63,12 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
 
     let THRESHOLD = params.threshold.parse::<u16>().unwrap();
     let PARTIES = params.parties.parse::<u16>().unwrap();
+    let room_id = sha256_digest(message);
+
     //signup:
     let signup_path = "signupsign";
-    let (party_num_int, uuid) = match signup(signup_path, &client, &params, CURVE_NAME.clone()).unwrap() {
-        PartySignup { number, uuid } => (number, uuid),
+    let (party_num_int, uuid, _total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
+        (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
     };
     println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
 

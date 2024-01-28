@@ -9,7 +9,12 @@ use hmac::Hmac;
 use sha2::{Sha512};
 
 
-pub fn get_hd_key<E: Curve>(y_sum: &Point<E>, path_vector: Vec<BigInt>, chain_code: Point<E>) -> (Point<E>, Scalar<E>) {
+pub fn get_hd_key<E: Curve>(y_sum: &Point<E>, path: &str, chain_code: Point<E>) -> (Point<E>, Scalar<E>) {
+    let path_vector: Vec<BigInt> = path
+        .split('/')
+        .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
+        .collect();
+
     // derive a new pubkey and LR sequence, y_sum becomes a new child pub key
     let (y_sum_child, f_l_new, _cc_new) = hd_key(
         path_vector,

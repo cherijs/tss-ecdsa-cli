@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+//#![feature(proc_macro_hygiene, decl_macro)]
 
 extern crate clap;
 extern crate curv;
@@ -11,15 +12,14 @@ extern crate serde_json;
 use std::env;
 use clap::{App, AppSettings, Arg, SubCommand};
 
-use common::{manager};
+use common::{manager, hd_keys};
+
+use curves::ecdsa;
+use curves::eddsa;
 
 mod common;
 mod curves;
 mod test;
-
-use curves::ecdsa;
-use curves::eddsa;
-use crate::common::hd_keys;
 
 fn main() {
     let matches = App::new("TSS CLI Utility")
@@ -186,4 +186,3 @@ fn main() {
         _ => {}
     }
 }
-

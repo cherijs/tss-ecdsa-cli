@@ -98,12 +98,8 @@ pub fn run_pubkey_or_sign(
     let (f_l_new, y_sum) = match path.is_empty() {
         true => (Scalar::<Secp256k1>::zero(), y_sum),
         false => {
-            let path_vector: Vec<BigInt> = path
-                .split('/')
-                .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())
-                .collect();
             let chain_code= GE::generator() * chain_code;
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path_vector.clone(), chain_code);
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path, chain_code);
             (f_l_new, y_sum_child.clone())
         }
     };
@@ -119,7 +115,7 @@ pub fn run_pubkey_or_sign(
     }
     else {
         // Parse message to sign
-        let message = match hex::decode(message_str.clone()) {
+        let message = match hex::decode(message_str) {
             Ok(x) => x,
             Err(_e) => message_str.as_bytes().to_vec(),
         };

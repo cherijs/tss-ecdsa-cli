@@ -11,7 +11,7 @@ name = "tss_cli"
 path = "src/main.rs"
 
 [dependencies]
-rocket = { version = "0.5.0-rc.1", features = ["json"] }
+rocket = { version = "0.5.0-rc.1", features = ["json", "tls"] }
 serde = "1.0"
 serde_json = "1.0"
 serde_derive = "1.0"
@@ -21,11 +21,15 @@ uuid = { version = "0.8", features = ["v4"] }
 aes-gcm = "0.9.4"
 libsecp256k1 = "0.3.2"
 curv = { package = "curv-kzen", version = "0.9", default-features = false }
-zk-paillier = { git = "https://github.com/KZen-networks/zk-paillier", tag = "v0.4.2"}
+#zk-paillier = { git = "https://github.com/KZen-networks/zk-paillier", tag = "v0.4.2"}
 clap = { version = "2.33", features = ["yaml"] }
 hmac = "0.11"
 sha2 = "0.9"
 rand = "0.8"
+ring = "0.17.0-alpha.11"
+data-encoding="2.3.3"
+rustc-serialize="0.3"
+ttlhashmap="0.1.0"
 
 [dependencies.paillier]
 version = "0.4.2"
