@@ -1,4 +1,4 @@
-# TSS ECDSA CLI utility
+# TSS ECDSA/EdDSA CLI utility
 
 [![Build Status](https://travis-ci.com/cryptochill/tss-ecdsa-cli.svg?branch=master)](https://travis-ci.com/cryptochill/tss-ecdsa-cli)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -7,6 +7,7 @@ This project is an example usage of https://github.com/KZen-networks/multi-party
 
 Includes support for HD keys ([BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)). HD support based on https://github.com/trepca/multi-party-ecdsa/tree/hd-support.
 
+This branch also includes EdDSA based on https://github.com/ZenGo-X/multi-party-eddsa with an experimental support of HD keys.
 ## Setup
 
 1.  Install [Rust](https://rustup.rs/) nightly ([Rocket](https://rocket.rs/v0.4/guide/getting-started/) requires the latest version of Rust nightly).
@@ -19,8 +20,9 @@ Includes support for HD keys ([BIP32](https://github.com/bitcoin/bips/blob/maste
 2. Clone & build.
 
     ```sh
-    git clone https://github.com/cryptochill/tss-ecdsa-cli.git 
+    git clone git@github.com:HRezaei/tss-ecdsa-cli.git 
     cd tss-ecdsa-cli
+    git checkout feature/chain-code-arg 
     cargo build --release
     ```
 
@@ -34,7 +36,7 @@ Includes support for HD keys ([BIP32](https://github.com/bitcoin/bips/blob/maste
    
     To run on different host/port adjust Rocket.toml or override using [env vars](https://api.rocket.rs/v0.4/rocket/config/index.html#environment-variables). 
     ```sh
-    ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8008 ./target/release/tss_cli
+    ROCKET_ADDRESS=127.0.0.1 ROCKET_PORT=8008 ./target/release/tss_cli manager
     ```
 
 2. Run keygen:
@@ -45,6 +47,8 @@ Includes support for HD keys ([BIP32](https://github.com/bitcoin/bips/blob/maste
 
     OPTIONS:
         -a, --addr <manager_addr>    URL to manager. E.g. http://127.0.0.2:8002
+        -l, --alg <algorithm>        Either ecdsa (default) or eddsa
+ 
 
     ARGS:
         <keysfile>    Target keys file
@@ -70,7 +74,8 @@ USAGE:
 
 OPTIONS:
     -p, --path <path>    Derivation path
-
+    -l, --alg <algorithm>    Either ecdsa (default) or eddsa
+    -c, --cc <chain_code>    Hex representation of chain_code
 ARGS:
     <keysfile>    Keys file
 
@@ -92,7 +97,8 @@ USAGE:
 OPTIONS:
     -a, --addr <manager_addr>    URL to manager
     -p, --path <path>            Derivation path
-
+    -l, --alg <algorithm>        Either ecdsa (default) or eddsa
+    -c, --cc <chain_code>        Hex representation of chain_code
 ARGS:
     <keysfile>    Keys file
     <params>      Threshold params: threshold/parties (t+1/n). E.g. 1/3 for 2 of 3 schema.
