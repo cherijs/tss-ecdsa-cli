@@ -14,11 +14,11 @@ use clap::{App, AppSettings, Arg, SubCommand};
 
 use common::{manager, hd_keys};
 
-use curves::ecdsa;
-use curves::eddsa;
+use protocols::ecdsa;
+use protocols::eddsa;
 
 mod common;
-mod curves;
+mod protocols;
 mod test;
 
 fn main() {
