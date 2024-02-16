@@ -109,14 +109,12 @@ impl SigningRoom {
         let active_members = self.active_members();
         if self.is_full() && active_members.len() >= usize::from(self.room_size) {
             self.last_stage = "terminated".to_string();
-            //Signing for ed25519 curve fails if we change the order of parties, so I commented it:
-            /*let mut new_order = 1;
-            for (key, value) in self.member_info.iter_mut() {
-                if active_members.contains_key(&key) {
-                    value.party_order = new_order;
-                    new_order = new_order + 1;
+            //Signing for ed25519 curve fails if the order of parties is different from their number in key file:
+            for (party_number, member_info) in self.member_info.iter_mut() {
+                if active_members.contains_key(&party_number) {
+                    member_info.party_order = *party_number;
                 }
-            }*/
+            }
         }
     }
 
