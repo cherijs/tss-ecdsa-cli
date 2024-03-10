@@ -67,7 +67,7 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
 
     //signup:
     let signup_path = "signupsign";
-    let (party_num_int, uuid, _total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
+    let (party_num_int, uuid, total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
         (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
     };
     println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
@@ -81,7 +81,7 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         uuid.clone(),
         delay,
         THRESHOLD.clone(),
-        PARTIES,
+        total_parties,
         party_num_int,
         &party_keys,
         &message,
@@ -96,14 +96,14 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     let local_sig_vec = exchange_data(
         client.clone(),
         party_num_int,
-        PARTIES,
+        total_parties,
         uuid,
         "round1_local_sig",
         delay,
         local_sig
     );
 
-    let parties_index_vec = (0..PARTIES)
+    let parties_index_vec = (0..total_parties)
         .map(|i| i )
         .collect::<Vec<u16>>();
 
@@ -178,7 +178,8 @@ pub fn eph_keygen_t_n_parties(
         threshold: t,
         share_count: n.clone(),
     };
-    assert!(parties.len() as u16 > t && parties.len() as u16 <= n);
+    assert!(parties.len() as u16 > t);
+    assert!(parties.len() as u16 <= n);
 
     let eph_party_key: EphemeralKey = EphemeralKey::ephermeral_key_create_from_deterministic_secret(
         key_i,
