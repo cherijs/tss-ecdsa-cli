@@ -46,7 +46,10 @@ fn convert_old_GE(old: &OldGE) -> GE {
     GE::from_coords(&old_x, &old_y).unwrap()
 }
 
-fn convert_old_FE(old: OldFE) -> FE {
+fn convert_old_FE(mut old: OldFE) -> FE {
+    if old.len() % 2 != 0 {
+        old.insert(0,'0');
+    }
     let old_bytes = hex::decode(old).unwrap();
 
     FE::from_bytes(old_bytes.as_slice()).unwrap()
