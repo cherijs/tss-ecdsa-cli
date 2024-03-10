@@ -202,9 +202,9 @@ pub fn poll_for_broadcasts(
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
                     },
-                    Err(ManagerError{error}) => {
+                    Err(ManagerError{error: _manager_error}) => {
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, error);
+                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, _manager_error);
                     }
                 }
                 if start_time.elapsed().as_secs() > timeout {
@@ -247,12 +247,12 @@ pub fn poll_for_p2p(
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
                     },
-                    Err(ManagerError{error}) => {
+                    Err(ManagerError{error: manager_error}) => {
                         if start_time.elapsed().as_secs() > timeout {
-                            panic!("Polling timed out! No response received in {:?} from party number {:?}", round, i);
+                            panic!("Polling timed out! No response received in {:?} from party number {:?}. Error: {:?}", round, i, manager_error);
                         };
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, error);
+                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, manager_error);
                     }
                 }
             }

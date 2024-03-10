@@ -62,7 +62,6 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     };
 
     let THRESHOLD = params.threshold.parse::<u16>().unwrap();
-    let PARTIES = params.parties.parse::<u16>().unwrap();
     let room_id = sha256_digest(message);
 
     //signup:
