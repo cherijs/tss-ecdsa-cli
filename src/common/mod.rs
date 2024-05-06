@@ -1,28 +1,29 @@
-pub mod hd_keys;
-pub mod keygen;
 pub mod manager;
-pub mod signer;
+pub mod hd_keys;
+
 pub mod signing_room;
 
-use std::{iter::repeat, thread, time, time::Duration};
+use std::{thread, time, time::Duration};
 use std::time::Instant;
 
 use aes_gcm::{Aes256Gcm, Nonce};
-use aes_gcm::aead::{NewAead, Aead, Payload};
+use aes_gcm::aead::{Aead, NewAead};
 
-use curv::{
-    elliptic::curves::secp256_k1::{FE, GE},
-    elliptic::curves::traits::{ECPoint, ECScalar},
-    BigInt,
-};
-use curv::arithmetic::Converter;
-use reqwest::blocking::Client;
+use reqwest::blocking::Client as RequestClient;
 use serde::{Deserialize, Serialize};
-use curv::cryptographic_primitives::hashing::hash_sha256::HSha256;
-use curv::cryptographic_primitives::hashing::traits::Hash;
-
+use rand::{rngs::OsRng, RngCore};
+use sha2::{Sha256, Digest};
 
 pub type Key = String;
+
+#[derive(Clone)]
+pub struct Client {
+    client: RequestClient,
+    address: String
+}
+
+#[allow(dead_code)]
+pub const AES_KEY_BYTES_LEN: usize = 32;
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct AEAD {
@@ -35,7 +36,8 @@ pub struct PartySignupRequestBody {
     pub threshold: u16,
     pub room_id: String,
     pub party_number: u16,  // It's better to rename this to fragment_index
-    pub party_uuid: String
+    pub party_uuid: String,
+    pub curve_name: String
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -81,74 +83,54 @@ pub struct Params {
     pub threshold: String,
 }
 
+impl Client {
+    pub fn new(addr: String) -> Self {
+        Self {
+            client: RequestClient::new(),
+            address: addr
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub fn aes_encrypt(key: &[u8], plaintext: &[u8]) -> AEAD {
-
-    let mut full_length_key:[u8; 32] = [0; 32];
-    full_length_key[(32 - key.len())..].copy_from_slice(key);//Pad key with zeros
-
-    let aes_key = aes_gcm::Key::from_slice(full_length_key.as_slice());
+    let aes_key = aes_gcm::Key::from_slice(key);
     let cipher = Aes256Gcm::new(aes_key);
 
-    let nonce_vector: Vec<u8> = repeat(3).take(12).collect();
-    let nonce = Nonce::from_slice(nonce_vector.as_slice());
+    let mut nonce = [0u8; 12];
+    OsRng.fill_bytes(&mut nonce);
+    let nonce = Nonce::from_slice(&nonce);
 
-    let out_tag: Vec<u8> = repeat(0).take(16).collect();
-
-    let text_payload = Payload {
-        msg: plaintext,
-        aad: &out_tag.as_slice()
-    };
-
-    let ciphertext = cipher.encrypt(nonce, text_payload)
-        .expect("encryption failure!"); // NOTE: handle this error to avoid panics!
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .expect("encryption failure!");
 
     AEAD {
         ciphertext: ciphertext,
-        tag: out_tag.to_vec(),
+        tag: nonce.to_vec(),
     }
 }
 
 #[allow(dead_code)]
 pub fn aes_decrypt(key: &[u8], aead_pack: AEAD) -> Vec<u8> {
-
-    let mut full_length_key:[u8; 32] = [0; 32];
-    full_length_key[(32 - key.len())..].copy_from_slice(key);//Pad key with zeros
-
-    let aes_key = aes_gcm::Key::from_slice(full_length_key.as_slice());
-
-    let nonce_vector: Vec<u8> = repeat(3).take(12).collect();
-    let nonce = Nonce::from_slice(nonce_vector.as_slice());
-
+    let aes_key = aes_gcm::Key::from_slice(key);
+    let nonce = Nonce::from_slice(&aead_pack.tag);
     let gcm = Aes256Gcm::new(aes_key);
 
-    let text_payload = Payload {
-        msg: aead_pack.ciphertext.as_slice(),
-        aad: aead_pack.tag.as_slice()
-    };
-
-    let out = gcm.decrypt(nonce, text_payload);
-    out.unwrap_or_default()
+    let out = gcm.decrypt(nonce, aead_pack.ciphertext.as_slice());
+    out.unwrap()
 }
 
-pub fn postb<T>(addr: &String, client: &Client, path: &str, body: T) -> Option<String>
-where
-    T: serde::ser::Serialize,
+pub fn postb<T>(client: &Client, path: &str, body: T) -> Option<String>
+    where
+        T: serde::ser::Serialize,
 {
-    //    let mut addr = env::args()
-    //        .nth(4)
-    //        .unwrap_or_else(|| "http://127.0.0.1:8001".to_string());
-    //    for argument in env::args() {
-    //        if argument.contains("://") {
-    //            let addr_parts: Vec<&str> = argument.split("http:").collect();
-    //            addr = format!("http:{}", addr_parts[1]);
-    //        }
-    //    }
+    let addr = client.address.clone();
     let retries = 3;
     let retry_delay = time::Duration::from_millis(250);
     for _i in 1..retries {
         let addr = format!("{}/{}", addr, path);
-        let res = client.post(&addr).json(&body).send();
+        let res = client.client.post(&addr).json(&body).send();
 
         if let Ok(res) = res {
             return Some(res.text().unwrap());
@@ -159,7 +141,6 @@ where
 }
 
 pub fn broadcast(
-    addr: &String,
     client: &Client,
     party_num: u16,
     round: &str,
@@ -171,13 +152,11 @@ pub fn broadcast(
         key: key.clone(),
         value: data,
     };
-
-    let res_body = postb(&addr, &client, "set", entry).unwrap();
+    let res_body = postb(&client, "set", entry).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
 
 pub fn sendp2p(
-    addr: &String,
     client: &Client,
     party_from: u16,
     party_to: u16,
@@ -192,12 +171,11 @@ pub fn sendp2p(
         value: data,
     };
 
-    let res_body = postb(&addr, &client, "set", entry).unwrap();
+    let res_body = postb(&client, "set", entry).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
 
 pub fn poll_for_broadcasts(
-    addr: &String,
     client: &Client,
     party_num: u16,
     n: u16,
@@ -215,7 +193,8 @@ pub fn poll_for_broadcasts(
             let start_time = Instant::now();
             loop {
                 // add delay to allow the server to process request:
-                let res_body = postb(&addr, &client, "get", index.clone()).unwrap();
+                thread::sleep(delay);
+                let res_body = postb(&client, "get", index.clone()).unwrap();
                 let answer: Result<Entry, ManagerError> = serde_json::from_str(&res_body).unwrap();
                 match answer {
                     Ok(answer) => {
@@ -223,9 +202,9 @@ pub fn poll_for_broadcasts(
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
                     },
-                    Err(ManagerError{error}) => {
+                    Err(ManagerError{error: _manager_error}) => {
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, error);
+                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, _manager_error);
                     }
                 }
                 if start_time.elapsed().as_secs() > timeout {
@@ -240,7 +219,6 @@ pub fn poll_for_broadcasts(
 }
 
 pub fn poll_for_p2p(
-    addr: &String,
     client: &Client,
     party_num: u16,
     n: u16,
@@ -259,7 +237,9 @@ pub fn poll_for_p2p(
             loop {
                 // add delay to allow the server to process request:
                 thread::sleep(delay);
-                let res_body = postb(&addr, &client, "get", index.clone()).unwrap();
+
+                let res_body = postb(&client, "get", index.clone()).unwrap();
+                //let res_body = postb(&client, "get", index.clone()).unwrap();
                 let answer: Result<Entry, ManagerError> = serde_json::from_str(&res_body).unwrap();
                 match answer {
                     Ok(answer) => {
@@ -267,12 +247,12 @@ pub fn poll_for_p2p(
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
                     },
-                    Err(ManagerError{error}) => {
+                    Err(ManagerError{error: manager_error}) => {
                         if start_time.elapsed().as_secs() > timeout {
-                            panic!("Polling timed out! No response received in {:?} from party number {:?}", round, i);
+                            panic!("Polling timed out! No response received in {:?} from party number {:?}. Error: {:?}", round, i, manager_error);
                         };
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, error);
+                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, manager_error);
                     }
                 }
             }
@@ -281,38 +261,84 @@ pub fn poll_for_p2p(
     ans_vec
 }
 
-#[allow(dead_code)]
-pub fn check_sig(r: &FE, s: &FE, msg: &BigInt, pk: &GE) {
-    use secp256k1::{verify, Message, PublicKey, PublicKeyFormat, Signature};
+pub fn keygen_signup(client: &Client, params: &Params, curve_name: &str) -> Result<PartySignup, ()> {
+    let res_body = postb(&client, "signupkeygen", (params, curve_name)).unwrap();
+    serde_json::from_str(&res_body).unwrap()
+}
 
-    let raw_msg = BigInt::to_bytes(&msg);
-    let mut msg: Vec<u8> = Vec::new(); // padding
-    msg.extend(vec![0u8; 32 - raw_msg.len()]);
-    msg.extend(raw_msg.iter());
+/*pub fn signup(path:&str, client: &Client, params: &Params, curve_name: &str) -> Result<PartySignup, ()> {
+    let res_body = postb(&client, path, (params, curve_name)).unwrap();
+    serde_json::from_str(&res_body).unwrap()
+}*/
 
-    let msg = Message::parse_slice(msg.as_slice()).unwrap();
-    let mut raw_pk = pk.pk_to_key_slice();
-    if raw_pk.len() == 64 {
-        raw_pk.insert(0, 4u8);
-    }
-    let pk = PublicKey::parse_slice(&raw_pk, Some(PublicKeyFormat::Full)).unwrap();
+pub fn signup(path: &str, client: &Client, params: &Params, room_id: String, party_id: u16, curve_name: &str) -> Result<(PartySignup, u16), ()> {
+    let mut request_body = PartySignupRequestBody{
+        threshold: params.threshold.parse::<u16>().unwrap(),
+        room_id: room_id.clone(),
+        party_number: party_id,
+        party_uuid: "".to_string(),
+        curve_name: curve_name.to_string()
+    };
+    let delay = time::Duration::from_millis(100);
+    let timeout = std::env::var("TSS_CLI_SIGNUP_TIMEOUT")
+        .unwrap_or("30".to_string()).parse::<u64>().unwrap();
+    let res_body = postb(&client, path, request_body.clone()).unwrap();
+    let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
+    let (output, total_parties) = match answer {
+        Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
+            println!("Signed up, party order: {:?}, joined so far: {:?}, waiting for room uuid", party_order, total_joined);
+            let mut now = time::SystemTime::now();
+            let mut last_total_joined = total_joined;
+            let mut party_signup = PartySignup {
+                number: party_order,
+                uuid: room_uuid
+            };
+            while party_signup.uuid.is_empty() {
+                thread::sleep(delay);
+                request_body.party_uuid = party_uuid.clone();
+                let res_body = postb(&client, path, request_body.clone()).unwrap();
+                let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
+                match answer {
+                    Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
+                        request_body.party_uuid = party_uuid;
+                        if party_signup.number != party_order {
+                            println!("Order is changed: {:?}", party_order);
+                            party_signup.number = party_order;
+                        }
+                        party_signup.uuid = room_uuid;
+                        if total_joined != last_total_joined {
+                            println!("Joined so far: {:?}", total_joined);
+                            last_total_joined = total_joined;
+                            //Reset the signup timeout
+                            now = time::SystemTime::now();
+                        }
+                    },
+                    Err(ManagerError{error}) => {
+                        panic!("{}", error);
+                    }
+                };
+                if now.elapsed().unwrap().as_secs() > timeout{
+                    break;
+                }
+            }
+            if party_signup.uuid.is_empty() {
+                panic!("Could not get room uuid after {:?} seconds of tries", timeout);
+            }
+            (party_signup, last_total_joined)
+        },
+        Err(ManagerError{error}) => {
+            panic!("{}", error);
+        }
+    };
 
-    let mut compact: Vec<u8> = Vec::new();
-    let bytes_r = &r.get_element()[..];
-    compact.extend(vec![0u8; 32 - bytes_r.len()]);
-    compact.extend(bytes_r.iter());
-
-    let bytes_s = &s.get_element()[..];
-    compact.extend(vec![0u8; 32 - bytes_s.len()]);
-    compact.extend(bytes_s.iter());
-
-    let secp_sig = Signature::parse_slice(compact.as_slice()).unwrap();
-
-    let is_correct = verify(&msg, &secp_sig, &pk);
-    assert!(is_correct);
+    return Ok((output, total_parties));
 }
 
 
-fn sha256_digest(input: &[u8]) -> String {
-    return HSha256::create_hash_from_slice(input).to_hex();
+
+pub fn sha256_digest(input: &[u8]) -> String {
+    let mut sha256 = Sha256::new();
+    sha256.update(input);
+    let hash: String = format!("{:X}", sha256.finalize());
+    hash
 }

@@ -5,26 +5,27 @@ extern crate paillier;
 extern crate reqwest;
 extern crate serde_json;
 
-use std::{thread, time};
-use std::time::Duration;
+use std::time;
 
 use curv::cryptographic_primitives::proofs::sigma_correct_homomorphic_elgamal_enc::HomoELGamalProof;
 use curv::cryptographic_primitives::proofs::sigma_dlog::DLogProof;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-use curv::elliptic::curves::traits::*;
 use curv::{
     BigInt,
-    elliptic::curves::secp256_k1::{FE, GE},
     arithmetic::{BasicOps, Converter, Modulo}
 };
 use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::*;
 use multi_party_ecdsa::utilities::mta::*;
-use paillier::*;
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
+use curv::elliptic::curves::{Point, Secp256k1};
+use paillier::EncryptionKey;
+use sha2::Sha256;
 
-use crate::common::{broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, Params, PartySignup, PartySignupRequestBody, sha256_digest, SigningPartySignup, ManagerError};
+use crate::common::{signup, Client};
+use crate::ecdsa::{CURVE_NAME, FE, GE};
+use crate::common::{broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, Params, PartySignup, sha256_digest};
+
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct TupleKey {
@@ -39,30 +40,34 @@ pub fn sign(
     party_keys: Keys,
     shared_keys: SharedKeys,
     party_id: u16,
-    vss_scheme_vec: &mut Vec<VerifiableSS<GE>>,
+    vss_scheme_vec: &mut Vec<VerifiableSS<Secp256k1>>,
     paillier_key_vector: Vec<EncryptionKey>,
     y_sum: &GE,
     params: &Params,
     message: &[u8],
     f_l_new: &FE,
     sign_at_path: bool,
-) {
-    let client = Client::new();
+) -> Value {
+    let client = Client::new(addr.clone());
     let delay = time::Duration::from_millis(25);
-    let THRESHOLD = params.threshold.parse::<u16>().unwrap();
     let room_id = sha256_digest(message);
 
     // Signup
-    let (party_num_int, uuid, total_parties) = match signup(&addr, &client, THRESHOLD, room_id, party_id).unwrap() {
+    let signup_path = "signupsign";
+    let (party_num_int, uuid, total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
         (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
     };
 
-    let debug = json!({"manager_addr": &addr, "party_num": party_num_int, "uuid": uuid});
+    let debug = json!({
+        "manager_addr": &addr,
+        "party_num": party_num_int,
+        "uuid": uuid,
+        "curve": CURVE_NAME
+    });
     println!("{}", serde_json::to_string_pretty(&debug).unwrap());
 
     // round 0: collect signers IDs
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int,
         "round0",
@@ -72,7 +77,6 @@ pub fn sign(
     .is_ok());
 
     let round0_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int,
         total_parties,
@@ -81,22 +85,22 @@ pub fn sign(
         uuid.clone(),
     );
     let mut j = 0;
-    let mut signers_vec: Vec<usize> = Vec::new();
+    let mut signers_vec: Vec<u16> = Vec::new();
     for i in 1..=total_parties {
         if i == party_num_int {
-            signers_vec.push((party_id - 1) as usize);
+            signers_vec.push(party_id - 1);
         } else {
             let signer_j: u16 = serde_json::from_str(&round0_ans_vec[j]).unwrap();
-            signers_vec.push((signer_j - 1) as usize);
+            signers_vec.push(signer_j - 1);
             j = j + 1;
         }
     }
 
     if sign_at_path == true {
         // optimize!
-        let g: GE = ECPoint::generator();
+        let g: GE = Point::<Secp256k1>::generator().to_point();
         // apply on first commitment for leader (leader is party with num=1)
-        let com_zero_new = vss_scheme_vec[0].commitments[0] + g * f_l_new;
+        let com_zero_new = vss_scheme_vec[0].commitments[0].clone() + g * f_l_new;
         // println!("old zero: {:?}, new zero: {:?}", vss_scheme_vec[0].commitments[0], com_zero_new);
         // get iterator of all commitments and skip first zero commitment
         let mut com_iter_unchanged = vss_scheme_vec[0].commitments.iter();
@@ -105,7 +109,7 @@ pub fn sign(
         let com_vec_new = (0..vss_scheme_vec[1].commitments.len())
             .map(|i| {
                 if i == 0 {
-                    com_zero_new
+                    com_zero_new.clone()
                 } else {
                     com_iter_unchanged.next().unwrap().clone()
                 }
@@ -137,7 +141,7 @@ pub fn sign(
 
     let sign_keys = SignKeys::create(
         &private,
-        &vss_scheme_vec[signers_vec[(party_num_int - 1) as usize]],
+        &vss_scheme_vec[signers_vec[(party_num_int - 1) as usize] as usize],
         signers_vec[(party_num_int - 1) as usize],
         &signers_vec,
     );
@@ -146,7 +150,6 @@ pub fn sign(
     let (com, decommit) = sign_keys.phase1_broadcast();
     let (m_a_k, _) = MessageA::a(&sign_keys.k_i, &party_keys.ek, &[]);
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int,
         "round1",
@@ -155,7 +158,6 @@ pub fn sign(
     )
     .is_ok());
     let round1_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int,
         total_parties,
@@ -195,14 +197,14 @@ pub fn sign(
         if i != party_num_int {
             let (m_b_gamma, beta_gamma, _, _) = MessageB::b(
                 &sign_keys.gamma_i,
-                &paillier_key_vector[signers_vec[(i - 1) as usize]],
+                &paillier_key_vector[signers_vec[(i - 1) as usize] as usize],
                 m_a_vec[j].clone(),
                 &[]
             )
             .unwrap();
             let (m_b_w, beta_wi, _, _) = MessageB::b(
                 &sign_keys.w_i,
-                &paillier_key_vector[signers_vec[(i - 1) as usize]],
+                &paillier_key_vector[signers_vec[(i - 1) as usize] as usize],
                 m_a_vec[j].clone(),
                 &[]
             )
@@ -219,7 +221,6 @@ pub fn sign(
     for i in 1..total_parties + 1 {
         if i != party_num_int {
             assert!(sendp2p(
-                &addr,
                 &client,
                 party_num_int.clone(),
                 i.clone(),
@@ -234,7 +235,6 @@ pub fn sign(
     }
 
     let round2_ans_vec = poll_for_p2p(
-        &addr,
         &client,
         party_num_int,
         total_parties,
@@ -276,8 +276,8 @@ pub fn sign(
             alpha_vec.push(alpha_ij_gamma.0);
             miu_vec.push(alpha_ij_wi.0);
             let g_w_i = Keys::update_commitments_to_xi(
-                &xi_com_vec[signers_vec[(i - 1) as usize]],
-                &vss_scheme_vec[signers_vec[(i - 1) as usize]],
+                &xi_com_vec[signers_vec[(i - 1) as usize] as usize],
+                &vss_scheme_vec[signers_vec[(i - 1) as usize] as usize],
                 signers_vec[(i - 1) as usize],
                 &signers_vec,
             );
@@ -292,7 +292,6 @@ pub fn sign(
     let sigma = sign_keys.phase2_sigma_i(&miu_vec, &ni_vec);
 
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int,
         "round3",
@@ -301,7 +300,6 @@ pub fn sign(
     )
     .is_ok());
     let round3_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int,
         total_parties,
@@ -321,7 +319,6 @@ pub fn sign(
     //////////////////////////////////////////////////////////////////////////////
     // decommit to gamma_i
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int,
         "round4",
@@ -330,7 +327,6 @@ pub fn sign(
     )
     .is_ok());
     let round4_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int,
         total_parties,
@@ -350,7 +346,7 @@ pub fn sign(
     bc1_vec.remove((party_num_int - 1) as usize);
     let b_proof_vec = (0..m_b_gamma_rec_vec.len())
         .map(|i| &m_b_gamma_rec_vec[i].b_proof)
-        .collect::<Vec<&DLogProof<GE>>>();
+        .collect::<Vec<&DLogProof<Secp256k1, Sha256>>>();
     let R = SignKeys::phase4(&delta_inv, &b_proof_vec, decommit_vec, &bc1_vec)
         .expect("bad gamma_i decommit");
 
@@ -370,7 +366,6 @@ pub fn sign(
 
     //phase (5A)  broadcast commit
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int.clone(),
         "round5",
@@ -379,7 +374,6 @@ pub fn sign(
     )
     .is_ok());
     let round5_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int.clone(),
         total_parties,
@@ -398,7 +392,6 @@ pub fn sign(
 
     //phase (5B)  broadcast decommit and (5B) ZK proof
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int.clone(),
         "round6",
@@ -412,7 +405,6 @@ pub fn sign(
     )
     .is_ok());
     let round6_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int.clone(),
         total_parties,
@@ -423,8 +415,8 @@ pub fn sign(
 
     let mut decommit5a_and_elgamal_and_dlog_vec: Vec<(
         Phase5ADecom1,
-        HomoELGamalProof<GE>,
-        DLogProof<GE>,
+        HomoELGamalProof<Secp256k1, Sha256>,
+        DLogProof<Secp256k1, Sha256>,
     )> = Vec::new();
     format_vec_from_reads(
         &round6_ans_vec,
@@ -444,10 +436,10 @@ pub fn sign(
         .collect::<Vec<Phase5ADecom1>>();
     let phase_5a_elgamal_vec = (0..total_parties - 1)
         .map(|i| decommit5a_and_elgamal_and_dlog_vec[i as usize].1.clone())
-        .collect::<Vec<HomoELGamalProof<GE>>>();
+        .collect::<Vec<HomoELGamalProof<Secp256k1, Sha256>>>();
     let phase_5a_dlog_vec = (0..total_parties - 1)
         .map(|i| decommit5a_and_elgamal_and_dlog_vec[i as usize].2.clone())
-        .collect::<Vec<DLogProof<GE>>>();
+        .collect::<Vec<DLogProof<Secp256k1, Sha256>>>();
     let (phase5_com2, phase_5d_decom2) = local_sig
         .phase5c(
             &phase_5a_decomm_vec,
@@ -461,7 +453,6 @@ pub fn sign(
 
     //////////////////////////////////////////////////////////////////////////////
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int.clone(),
         "round7",
@@ -470,7 +461,6 @@ pub fn sign(
     )
     .is_ok());
     let round7_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int.clone(),
         total_parties,
@@ -489,7 +479,6 @@ pub fn sign(
 
     //phase (5B)  broadcast decommit and (5B) ZK proof
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int.clone(),
         "round8",
@@ -498,7 +487,6 @@ pub fn sign(
     )
     .is_ok());
     let round8_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int.clone(),
         total_parties,
@@ -528,7 +516,6 @@ pub fn sign(
 
     //////////////////////////////////////////////////////////////////////////////
     assert!(broadcast(
-        &addr,
         &client,
         party_num_int.clone(),
         "round9",
@@ -537,7 +524,6 @@ pub fn sign(
     )
     .is_ok());
     let round9_ans_vec = poll_for_broadcasts(
-        &addr,
         &client,
         party_num_int.clone(),
         total_parties,
@@ -575,15 +561,16 @@ pub fn sign(
     //    print(sig.recid.clone()
 
     let ret_dict = json!({
-        "r": (BigInt::from_bytes(&(sig.r.get_element())[..])).to_str_radix(16),
-        "s": (BigInt::from_bytes(&(sig.s.get_element())[..])).to_str_radix(16),
+        "r": sig.r.to_bigint().to_str_radix(16),
+        "s": sig.s.to_bigint().to_str_radix(16),
         "status": "signature_ready",
         "recid": sig.recid.clone(),
-        "x": &y_sum.x_coor(),
-        "y": &y_sum.y_coor(),
+        "x": &y_sum.x_coord().unwrap().to_str_radix(16),
+        "y": &y_sum.y_coord().unwrap().to_str_radix(16),
         "msg_int": message_int,
     });
-    println!("{}", ret_dict.to_string());
+
+    ret_dict
 
     //    fs::write("signature".to_string(), sign_json).expect("Unable to save !");
 
@@ -612,79 +599,4 @@ fn format_vec_from_reads<'a, T: serde::Deserialize<'a> + Clone>(
             j = j + 1;
         }
     }
-}
-
-pub fn postb<T>(addr: &String, client: &Client, path: &str, body: T) -> Option<String>
-where
-    T: serde::ser::Serialize,
-{
-    let res = client
-        .post(&format!("{}/{}", addr, path))
-        .json(&body)
-        .timeout(Duration::from_secs(600))
-        .send();
-    Some(res.unwrap().text().unwrap())
-}
-
-pub fn signup(addr: &String, client: &Client, threshold: u16, room_id: String, party_id: u16) -> Result<(PartySignup, u16), ()> {
-    let mut request_body = PartySignupRequestBody{
-        threshold,
-        room_id: room_id.clone(),
-        party_number: party_id,
-        party_uuid: "".to_string()
-    };
-    let path = "signupsign";
-    let delay = time::Duration::from_millis(100);
-    let timeout = std::env::var("TSS_CLI_SIGNUP_TIMEOUT")
-        .unwrap_or("30".to_string()).parse::<u64>().unwrap();
-    let res_body = postb(&addr, &client, path, request_body.clone()).unwrap();
-    let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
-    let (output, total_parties) = match answer {
-        Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
-            println!("Signed up, party order: {:?}, joined so far: {:?}, waiting for room uuid", party_order, total_joined);
-            let mut now = time::SystemTime::now();
-            let mut last_total_joined = total_joined;
-            let mut party_signup = PartySignup {
-                number: party_order,
-                uuid: room_uuid
-            };
-            while party_signup.uuid.is_empty() {
-                thread::sleep(delay);
-                request_body.party_uuid = party_uuid.clone();
-                let res_body = postb(&addr, &client, path, request_body.clone()).unwrap();
-                let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
-                match answer {
-                    Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
-                        request_body.party_uuid = party_uuid;
-                        if party_signup.number != party_order {
-                            println!("Order is changed: {:?}", party_order);
-                            party_signup.number = party_order;
-                        }
-                        party_signup.uuid = room_uuid;
-                        if total_joined != last_total_joined {
-                            println!("Joined so far: {:?}", total_joined);
-                            last_total_joined = total_joined;
-                            //Reset the signup timeout
-                            now = time::SystemTime::now();
-                        }
-                    },
-                    Err(ManagerError{error}) => {
-                        panic!("{}", error);
-                    }
-                };
-                if now.elapsed().unwrap().as_secs() > timeout{
-                    break;
-                }
-            }
-            if party_signup.uuid.is_empty() {
-                panic!("Could not get room uuid after {:?} seconds of tries", timeout);
-            }
-            (party_signup, last_total_joined)
-        },
-        Err(ManagerError{error}) => {
-            panic!("{}", error);
-        }
-    };
-
-    return Ok((output, total_parties));
 }

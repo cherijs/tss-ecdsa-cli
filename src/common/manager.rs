@@ -13,7 +13,7 @@ use crate::common::{Entry, Index, Key, ManagerError, Params, PartySignup, PartyS
 use crate::common::signing_room::SigningRoom;
 
 #[rocket::main]
-pub async fn run_manager() -> Result<(), rocket::Error> {
+pub async fn run_manager() -> Result<Rocket<Ignite>, rocket::Error> {
     //     let mut my_config = Config::development();
     //     my_config.set_port(18001);
     let ttl = std::env::var("TSS_CLI_MANAGER_TTL")
@@ -23,6 +23,36 @@ pub async fn run_manager() -> Result<(), rocket::Error> {
     //rocket::custom(my_config).mount("/", routes![get, set]).manage(db_mtx).launch();
 
     /////////////////////////////////////////////////////////////////
+    //////////////////////////init signups://////////////////////////
+    /////////////////////////////////////////////////////////////////
+
+    /*for curve_name in ["ECDSA", "EdDSA"] {
+        let keygen_key = "signup-keygen-".to_string() + curve_name;
+        let sign_key = "signup-sign-".to_string() + curve_name;
+
+        let uuid_keygen = Uuid::new_v4().to_string();
+        let uuid_sign = Uuid::new_v4().to_string();
+
+        let party1 = 0;
+        let party_signup_keygen = PartySignup {
+            number: party1,
+            uuid: uuid_keygen,
+        };
+        let party_signup_sign = PartySignup {
+            number: party1,
+            uuid: uuid_sign,
+        };
+        {
+            let mut hm = db_mtx.write().unwrap();
+            hm.insert(
+                keygen_key,
+                serde_json::to_string(&party_signup_keygen).unwrap(),
+            );
+            hm.insert(sign_key, serde_json::to_string(&party_signup_sign).unwrap());
+        }
+    }*/
+    /////////////////////////////////////////////////////////////////
+
     rocket::build()
         .mount("/", routes![get, set, signup_keygen, signup_sign])
         .manage(db_mtx)
@@ -37,7 +67,6 @@ fn get(
 ) -> Json<Result<Entry, ManagerError>> {
     let index: Index = request.0;
     let mut hm = db_mtx.write().unwrap();
-
     match hm.get(&index.key) {
         Some(v) => {
             let entry = Entry {
@@ -65,10 +94,11 @@ fn set(db_mtx: &State<RwLock<TtlHashMap<Key, String>>>, request: Json<Entry>) ->
 #[post("/signupkeygen", format = "json", data = "<request>")]
 fn signup_keygen(
     db_mtx: &State<RwLock<TtlHashMap<Key, String>>>,
-    request: Json<Params>,
+    request: Json<(Params, String)>,
 ) -> Json<Result<PartySignup, ()>> {
-    let parties = request.parties.parse::<u16>().unwrap();
-    let key = "signup-keygen".to_string();
+    let parties = request.0.0.parties.parse::<u16>().unwrap();
+    let curve = &request.0.1.parse::<String>().unwrap();
+    let key = "signup-keygen-".to_string() + curve;
     let mut hm = db_mtx.write().unwrap();
 
     let client_signup = match hm.get(&key) {
@@ -107,7 +137,7 @@ fn signup_sign(
     let party_uuid = request.party_uuid.clone();
     let new_signup_request = party_uuid.is_empty();
     let party_number = request.party_number;
-    let mut key = "signup-sign-".to_owned();
+    let mut key = "signup-sign-".to_owned() + &request.curve_name;
     key.push_str(&room_id);
 
     let mut hm = db_mtx.write().unwrap();

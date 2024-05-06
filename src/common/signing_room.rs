@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::common::{SigningPartyInfo, SigningPartySignup};
+use itertools::Itertools; // 0.8.2
 
 pub const SIGNUP_TIMEOUT_ENV: &str = "TSS_MANAGER_SIGNUP_TIMEOUT";
 pub const SIGNUP_TIMEOUT_DEFAULT: &str = "2";
@@ -109,11 +110,12 @@ impl SigningRoom {
         let active_members = self.active_members();
         if self.is_full() && active_members.len() >= usize::from(self.room_size) {
             self.last_stage = "terminated".to_string();
+            //Signing for ed25519 curve fails if the order of parties is different from their number in key file:
             let mut new_order = 1;
-            for (key, value) in self.member_info.iter_mut() {
-                if active_members.contains_key(&key) {
-                    value.party_order = new_order;
-                    new_order = new_order + 1;
+            for (party_number, member_info) in self.member_info.iter_mut().sorted_by_key(|x| x.0) {
+                if active_members.contains_key(&party_number) {
+                    member_info.party_order = new_order;
+                    new_order = new_order + 1
                 }
             }
         }
