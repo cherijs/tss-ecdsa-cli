@@ -1,5 +1,6 @@
 use std::{fs, time};
 use std::time::Duration;
+use std::collections::HashMap;
 use curv::arithmetic::{Converter};
 use curv::BigInt;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
@@ -75,6 +76,20 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         shared_keys.y = Y.clone();
     }
 
+    // round 0: collect signers IDs
+    //I assume sharing party_id of signers is not a risk for security of protocol because
+    //similar thing is done in ECDSA:
+    //https://github.com/ZenGo-X/multi-party-ecdsa/blob/7d8bd416f96775a8a1d7ea4b6361e539b091f063/examples/gg18_sign_client.rs#L70
+    let parties_index_vec = exchange_data(
+        client.clone(),
+        party_num_int,
+        THRESHOLD.clone()+1,
+        uuid.clone(),
+        "round0",
+        delay,
+        party_id - 1
+    );
+
     let (_eph_keys_vec, eph_shared_keys_vec, R, eph_vss_vec) = eph_keygen_t_n_parties(
         client.clone(),
         uuid.clone(),
@@ -84,6 +99,7 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         party_num_int,
         &party_keys,
         &message,
+        parties_index_vec.clone()
     );
 
     let local_sig = LocalSig::compute(
@@ -101,10 +117,6 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         delay,
         local_sig
     );
-
-    let parties_index_vec = (0..total_parties)
-        .map(|i| i )
-        .collect::<Vec<u16>>();
 
     let verify_local_sig = LocalSig::verify_local_sigs(
         &local_sig_vec,
@@ -163,13 +175,15 @@ pub fn eph_keygen_t_n_parties(
     party_num_int: u16,
     key_i: &Keys,
     message: &[u8],
+    parties: Vec<u16>
 ) -> (
     EphemeralKey,
     Vec<EphemeralSharedKeys>,
     GE,
     Vec<VerifiableSS<Ed25519>>,
 ) {
-    let parties = (0..n)
+    let parties = parties
+        .iter()
         .map(|i| i + 1)
         .collect::<Vec<u16>>();
 
@@ -180,10 +194,12 @@ pub fn eph_keygen_t_n_parties(
     assert!(parties.len() as u16 > t);
     assert!(parties.len() as u16 <= n);
 
+    let this_party_index = parties[(party_num_int -1) as usize];
+
     let eph_party_key: EphemeralKey = EphemeralKey::ephermeral_key_create_from_deterministic_secret(
         key_i,
         message,
-        party_num_int,
+        this_party_index,
     );
 
     let mut bc1_vec = Vec::new();
@@ -209,7 +225,7 @@ pub fn eph_keygen_t_n_parties(
     );
 
     let mut j = 0;
-    let mut enc_keys: Vec<Vec<u8>> = Vec::new();
+    let mut enc_keys: HashMap<u16, Vec<u8>> = HashMap::new();
     for i in 1..=n {
         if i == party_num_int {
             bc1_vec.push(bc_i.clone());
@@ -225,7 +241,7 @@ pub fn eph_keygen_t_n_parties(
             let key_bytes = BigInt::to_bytes(&key_bn);
             let mut template: Vec<u8> = vec![0u8; AES_KEY_BYTES_LEN - key_bytes.len()];
             template.extend_from_slice(&key_bytes[..]);
-            enc_keys.push(template);
+            enc_keys.insert(parties[(i-1) as usize], template);
             j += 1;
         }
     }
@@ -272,11 +288,10 @@ pub fn eph_keygen_t_n_parties(
 
     //////////////////////////////////////////////////////////////////////////////
     //I'm not sure if we need this phase in ephemeral mode or not?
-    let mut j = 0;
     for (k, i) in (1..=n).enumerate() {
         if i != party_num_int {
             // prepare encrypted ss for party i:
-            let key_i = &enc_keys[j];
+            let key_i = enc_keys.get(&parties[(i-1) as usize]).unwrap();
             let plaintext = BigInt::to_bytes(&secret_shares[k].to_bigint());
             let aead_pack_i = aes_encrypt(key_i, &plaintext);
             assert!(sendp2p(
@@ -308,7 +323,7 @@ pub fn eph_keygen_t_n_parties(
             party_shares.push(secret_shares[(i - 1) as usize].clone());
         } else {
             let aead_pack: AEAD = serde_json::from_str(&round3_ans_vec[j]).unwrap();
-            let key_i = &enc_keys[j];
+            let key_i = &enc_keys.get(&parties[(i-1) as usize]).unwrap();
             let out = aes_decrypt(key_i, aead_pack);
             let out_bn = BigInt::from_bytes(&out[..]);
             let out_fe = FE::from(&out_bn);
@@ -325,7 +340,7 @@ pub fn eph_keygen_t_n_parties(
             &R_vec,
             &party_shares,
             &vss_scheme_vec,
-            party_num_int,
+            this_party_index,
         )
         .expect("invalid vss");
 
