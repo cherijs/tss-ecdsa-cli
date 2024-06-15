@@ -21,11 +21,11 @@ mod common;
 mod protocols;
 mod test;
 
-fn main() {
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
     let matches = App::new("TSS CLI Utility")
         .version("0.2.0")
         .author("Kaspars Sprogis <darklow@gmail.com>")
-//        .about("")
         .setting(AppSettings::SubcommandRequiredElseHelp)
         .subcommands(vec![
             SubCommand::with_name("manager").about("Run state manager"),
@@ -172,7 +172,7 @@ fn main() {
             println!("{}", result.to_string());
         }
         ("manager", Some(_matches)) => {
-            let _ = manager::run_manager();
+            manager::run_manager().await?;
         }
         ("keygen", Some(sub_matches)) => {
             let addr = sub_matches
@@ -203,4 +203,6 @@ fn main() {
         }
         _ => {}
     }
+
+    Ok(())
 }

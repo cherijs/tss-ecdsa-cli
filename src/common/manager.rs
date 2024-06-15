@@ -101,8 +101,8 @@ fn signup_keygen(
     db_mtx: &State<RwLock<TtlHashMap<Key, String>>>,
     request: Json<(Params, String)>,
 ) -> Json<Result<PartySignup, ()>> {
-    let parties = request.0 .0.parties.parse::<u16>().unwrap();
-    let curve = &request.0 .1.parse::<String>().unwrap();
+    let parties = request.0.0.parties.parse::<u16>().unwrap();
+    let curve = &request.0.1.parse::<String>().unwrap();
     let key = "signup-keygen-".to_string() + curve;
     let mut hm = db_mtx.write().unwrap();
 
