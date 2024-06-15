@@ -1,23 +1,30 @@
-use std::{fs, time};
-use std::time::Duration;
-use std::collections::HashMap;
-use curv::arithmetic::{Converter};
-use curv::BigInt;
+use crate::common::{
+    aes_decrypt, aes_encrypt, broadcast, hd_keys, poll_for_broadcasts, poll_for_p2p, sendp2p,
+    sha256_digest, signup, Client, Params, PartySignup, AEAD, AES_KEY_BYTES_LEN,
+};
+use crate::eddsa::{CURVE_NAME, FE, GE};
+use curv::arithmetic::Converter;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use curv::elliptic::curves::{Ed25519, Point, Scalar};
-use multi_party_eddsa::protocols::{Signature, thresholdsig};
+use curv::BigInt;
 use multi_party_eddsa::protocols::thresholdsig::{
     EphemeralKey, EphemeralSharedKeys, KeyGenBroadcastMessage1, Keys, LocalSig, Parameters,
-    SharedKeys
+    SharedKeys,
 };
-use sha2::{Sha512, Digest};
-use crate::common::{AEAD, aes_decrypt, aes_encrypt, AES_KEY_BYTES_LEN, broadcast, Client, hd_keys, Params, PartySignup, poll_for_broadcasts, poll_for_p2p, sendp2p, sha256_digest, signup};
-use crate::eddsa::{CURVE_NAME, FE, GE};
-
+use multi_party_eddsa::protocols::{thresholdsig, Signature};
+use sha2::{Digest, Sha512};
+use std::collections::HashMap;
+use std::time::Duration;
+use std::{fs, time};
 
 //TODO Find a better approach to import and reuse run_signer() from multi-party-eddsa repo
-pub fn run_signer(manager_address:String, key_file_path: String, params: Params, message_str:String, path: &str)
-                  -> (Signature, GE) {
+pub fn run_signer(
+    manager_address: String,
+    key_file_path: String,
+    params: Params,
+    message_str: String,
+    path: &str,
+) -> (Signature, GE) {
     // This function is written inspired from the
     // test function: protocols::thresholdsig::test::tests::test_t2_n5_sign_with_4_internal()
     let message = match hex::decode(message_str.clone()) {
@@ -29,8 +36,8 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     // delay:
     let delay = time::Duration::from_millis(25);
 
-    let data = fs::read_to_string(key_file_path)
-        .expect("Unable to load keys, did you run keygen first? ");
+    let data =
+        fs::read_to_string(key_file_path).expect("Unable to load keys, did you run keygen first? ");
     let (party_keys, chain_code, mut shared_keys, party_id, vss_scheme_vec, Y): (
         Keys,
         Scalar<Ed25519>,
@@ -46,17 +53,9 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         true => (Y, FE::zero()),
         false => {
             let chain_code = chain_code * GE::generator();
-            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(
-                &Y,
-                path,
-                chain_code
-            );
+            let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&Y, path, chain_code);
 
-            let safe_public_key_child =
-                update_hd_derived_public_key(
-                    y_sum_child
-                )
-                ;
+            let safe_public_key_child = update_hd_derived_public_key(y_sum_child);
 
             (safe_public_key_child, f_l_new)
         }
@@ -67,10 +66,14 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
 
     //signup:
     let signup_path = "signupsign";
-    let (party_num_int, uuid, total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
-        (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
-    };
-    println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
+    let (party_num_int, uuid, total_parties) =
+        match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
+            (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
+        };
+    println!(
+        "number: {:?}, uuid: {:?}, curve: {:?}",
+        party_num_int, uuid, CURVE_NAME
+    );
 
     if sign_at_path == true {
         shared_keys.y = Y.clone();
@@ -83,11 +86,11 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     let parties_index_vec = exchange_data(
         client.clone(),
         party_num_int,
-        THRESHOLD.clone()+1,
+        THRESHOLD.clone() + 1,
         uuid.clone(),
         "round0",
         delay,
-        party_id - 1
+        party_id - 1,
     );
 
     let (_eph_keys_vec, eph_shared_keys_vec, R, eph_vss_vec) = eph_keygen_t_n_parties(
@@ -99,12 +102,12 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         party_num_int,
         &party_keys,
         &message,
-        parties_index_vec.clone()
+        parties_index_vec.clone(),
     );
 
     let local_sig = LocalSig::compute(
         &message,
-        &eph_shared_keys_vec[(party_num_int-1) as usize],
+        &eph_shared_keys_vec[(party_num_int - 1) as usize],
         &shared_keys,
     );
 
@@ -115,7 +118,7 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
         uuid,
         "round1_local_sig",
         delay,
-        local_sig
+        local_sig,
     );
 
     let verify_local_sig = LocalSig::verify_local_sigs(
@@ -144,7 +147,12 @@ pub fn run_signer(manager_address:String, key_file_path: String, params: Params,
     (signature, Y)
 }
 
-fn update_signature(signature: &mut Signature, public_key: &Point<Ed25519>, message: &[u8], f_l_new: Scalar<Ed25519>) {
+fn update_signature(
+    signature: &mut Signature,
+    public_key: &Point<Ed25519>,
+    message: &[u8],
+    f_l_new: Scalar<Ed25519>,
+) {
     let mut k = Sha512::new()
         .chain(&*signature.R.to_bytes(true))
         .chain(&*public_key.to_bytes(true))
@@ -175,17 +183,14 @@ pub fn eph_keygen_t_n_parties(
     party_num_int: u16,
     key_i: &Keys,
     message: &[u8],
-    parties: Vec<u16>
+    parties: Vec<u16>,
 ) -> (
     EphemeralKey,
     Vec<EphemeralSharedKeys>,
     GE,
     Vec<VerifiableSS<Ed25519>>,
 ) {
-    let parties = parties
-        .iter()
-        .map(|i| i + 1)
-        .collect::<Vec<u16>>();
+    let parties = parties.iter().map(|i| i + 1).collect::<Vec<u16>>();
 
     let parames = Parameters {
         threshold: t,
@@ -194,7 +199,7 @@ pub fn eph_keygen_t_n_parties(
     assert!(parties.len() as u16 > t);
     assert!(parties.len() as u16 <= n);
 
-    let this_party_index = parties[(party_num_int -1) as usize];
+    let this_party_index = parties[(party_num_int - 1) as usize];
 
     let eph_party_key: EphemeralKey = EphemeralKey::ephermeral_key_create_from_deterministic_secret(
         key_i,
@@ -214,7 +219,7 @@ pub fn eph_keygen_t_n_parties(
         serde_json::to_string(&(bc_i.clone(), blind.clone(), eph_party_key.R_i.clone())).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -233,7 +238,8 @@ pub fn eph_keygen_t_n_parties(
             R_vec.push(eph_party_key.R_i.clone());
         } else {
             let (bc1_j, blind_j, R_i_j) =
-                serde_json::from_str::<(KeyGenBroadcastMessage1, BigInt, GE)>(&round1_ans_vec[j]).unwrap();
+                serde_json::from_str::<(KeyGenBroadcastMessage1, BigInt, GE)>(&round1_ans_vec[j])
+                    .unwrap();
             bc1_vec.push(bc1_j);
             blind_vec.push(blind_j);
             R_vec.push(R_i_j.clone());
@@ -241,7 +247,7 @@ pub fn eph_keygen_t_n_parties(
             let key_bytes = BigInt::to_bytes(&key_bn);
             let mut template: Vec<u8> = vec![0u8; AES_KEY_BYTES_LEN - key_bytes.len()];
             template.extend_from_slice(&key_bytes[..]);
-            enc_keys.insert(parties[(i-1) as usize], template);
+            enc_keys.insert(parties[(i - 1) as usize], template);
             j += 1;
         }
     }
@@ -252,7 +258,11 @@ pub fn eph_keygen_t_n_parties(
     let R_sum = tail.fold(head.clone(), |acc, x| acc + x);
     let (vss_scheme, secret_shares) = eph_party_key
         .phase1_verify_com_phase2_distribute(
-            &parames, &blind_vec, &R_vec, &bc1_vec, parties.as_slice(),
+            &parames,
+            &blind_vec,
+            &R_vec,
+            &bc1_vec,
+            parties.as_slice(),
         )
         .expect("invalid key");
 
@@ -264,7 +274,7 @@ pub fn eph_keygen_t_n_parties(
         serde_json::to_string(&vss_scheme).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round2_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -280,7 +290,8 @@ pub fn eph_keygen_t_n_parties(
         if i == party_num_int {
             vss_scheme_vec.push(vss_scheme.clone());
         } else {
-            let vss_scheme_j: VerifiableSS<Ed25519> = serde_json::from_str(&round2_ans_vec[j]).unwrap();
+            let vss_scheme_j: VerifiableSS<Ed25519> =
+                serde_json::from_str(&round2_ans_vec[j]).unwrap();
             vss_scheme_vec.push(vss_scheme_j);
             j += 1;
         }
@@ -291,7 +302,7 @@ pub fn eph_keygen_t_n_parties(
     for (k, i) in (1..=n).enumerate() {
         if i != party_num_int {
             // prepare encrypted ss for party i:
-            let key_i = enc_keys.get(&parties[(i-1) as usize]).unwrap();
+            let key_i = enc_keys.get(&parties[(i - 1) as usize]).unwrap();
             let plaintext = BigInt::to_bytes(&secret_shares[k].to_bigint());
             let aead_pack_i = aes_encrypt(key_i, &plaintext);
             assert!(sendp2p(
@@ -302,7 +313,7 @@ pub fn eph_keygen_t_n_parties(
                 serde_json::to_string(&aead_pack_i).unwrap(),
                 uuid.clone()
             )
-                .is_ok());
+            .is_ok());
             j += 1;
         }
     }
@@ -323,7 +334,7 @@ pub fn eph_keygen_t_n_parties(
             party_shares.push(secret_shares[(i - 1) as usize].clone());
         } else {
             let aead_pack: AEAD = serde_json::from_str(&round3_ans_vec[j]).unwrap();
-            let key_i = &enc_keys.get(&parties[(i-1) as usize]).unwrap();
+            let key_i = &enc_keys.get(&parties[(i - 1) as usize]).unwrap();
             let out = aes_decrypt(key_i, aead_pack);
             let out_bn = BigInt::from_bytes(&out[..]);
             let out_fe = FE::from(&out_bn);
@@ -352,7 +363,7 @@ pub fn eph_keygen_t_n_parties(
         serde_json::to_string(&eph_shared_key).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round4_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -367,7 +378,8 @@ pub fn eph_keygen_t_n_parties(
         if i == party_num_int {
             shared_keys_vec.push(eph_shared_key.clone());
         } else {
-            let shared_key_j:EphemeralSharedKeys = serde_json::from_str(&round4_ans_vec[j]).unwrap();
+            let shared_key_j: EphemeralSharedKeys =
+                serde_json::from_str(&round4_ans_vec[j]).unwrap();
             shared_keys_vec.push(shared_key_j);
             j += 1;
         }
@@ -376,11 +388,17 @@ pub fn eph_keygen_t_n_parties(
     (eph_party_key, shared_keys_vec, R_sum, vss_scheme_vec)
 }
 
-
-
-pub fn exchange_data<T>(client:Client, party_num:u16, n:u16, uuid:String, round: &str, delay: Duration, data:T) -> Vec<T>
-    where
-        T: Clone + serde::de::DeserializeOwned + serde::Serialize,
+pub fn exchange_data<T>(
+    client: Client,
+    party_num: u16,
+    n: u16,
+    uuid: String,
+    round: &str,
+    delay: Duration,
+    data: T,
+) -> Vec<T>
+where
+    T: Clone + serde::de::DeserializeOwned + serde::Serialize,
 {
     assert!(broadcast(
         &client,
@@ -389,15 +407,8 @@ pub fn exchange_data<T>(client:Client, party_num:u16, n:u16, uuid:String, round:
         serde_json::to_string(&data).unwrap(),
         uuid.clone()
     )
-        .is_ok());
-    let round_ans_vec = poll_for_broadcasts(
-        &client,
-        party_num,
-        n,
-        delay,
-        &round,
-        uuid.clone(),
-    );
+    .is_ok());
+    let round_ans_vec = poll_for_broadcasts(&client, party_num, n, delay, &round, uuid.clone());
 
     let json_answers = round_ans_vec.clone();
     let mut j = 0;
@@ -414,4 +425,3 @@ pub fn exchange_data<T>(client:Client, party_num:u16, n:u16, uuid:String, round:
 
     return answers;
 }
-

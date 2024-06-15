@@ -1,17 +1,21 @@
-use std::{fs, time};
-use std::string::String;
 use curv::arithmetic::Converter;
-use curv::BigInt;
 use curv::cryptographic_primitives::proofs::sigma_dlog::DLogProof;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-use curv::elliptic::curves::{Ed25519};
-use multi_party_eddsa::protocols::thresholdsig::{KeyGenBroadcastMessage1, KeyGenDecommitMessage1, Keys, Parameters};
+use curv::elliptic::curves::Ed25519;
+use curv::BigInt;
+use multi_party_eddsa::protocols::thresholdsig::{
+    KeyGenBroadcastMessage1, KeyGenDecommitMessage1, Keys, Parameters,
+};
 use sha2::Sha512;
+use std::string::String;
+use std::{fs, time};
 
-use crate::common::{AEAD, aes_decrypt, aes_encrypt, AES_KEY_BYTES_LEN, broadcast, Client, keygen_signup, Params, PartySignup, poll_for_broadcasts, poll_for_p2p, sendp2p};
-use crate::protocols::{generate_shared_chain_code, verify_dlog_proofs};
+use crate::common::{
+    aes_decrypt, aes_encrypt, broadcast, keygen_signup, poll_for_broadcasts, poll_for_p2p, sendp2p,
+    Client, Params, PartySignup, AEAD, AES_KEY_BYTES_LEN,
+};
 use crate::eddsa::{CURVE_NAME, FE, GE};
-
+use crate::protocols::{generate_shared_chain_code, verify_dlog_proofs};
 
 pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
     let THRESHOLD: u16 = params[0].parse::<u16>().unwrap();
@@ -33,7 +37,10 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
     let (party_num_int, uuid) = match keygen_signup(&client, &tn_params, CURVE_NAME).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
-    println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
+    println!(
+        "number: {:?}, uuid: {:?}, curve: {:?}",
+        party_num_int, uuid, CURVE_NAME
+    );
 
     let party_keys = Keys::phase1_create(party_num_int);
     let (bc_i, decom_i) = party_keys.phase1_broadcast();
@@ -44,7 +51,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         PARTIES,
         uuid.clone(),
         delay,
-        parameters.share_count as usize
+        parameters.share_count as usize,
     );
 
     // send commitment to ephemeral public keys, get round 1 commitments of other parties
@@ -55,7 +62,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         serde_json::to_string(&bc_i).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -99,10 +106,14 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
             point_vec.push(decom_i.clone().y_i);
             blind_vec.push(decom_i.clone().blind_factor);
         } else {
-            let decom_j: KeyGenDecommitMessage1 = serde_json::from_str::<KeyGenDecommitMessage1>(&round2_ans_vec[j]).unwrap();
+            let decom_j: KeyGenDecommitMessage1 =
+                serde_json::from_str::<KeyGenDecommitMessage1>(&round2_ans_vec[j]).unwrap();
             point_vec.push(decom_j.clone().y_i);
             blind_vec.push(decom_j.clone().blind_factor);
-            let key_bn: BigInt = (decom_j.y_i * party_keys.keypair.expanded_private_key.private_key.clone()).x_coord().unwrap();
+            let key_bn: BigInt = (decom_j.y_i
+                * party_keys.keypair.expanded_private_key.private_key.clone())
+            .x_coord()
+            .unwrap();
             let key_bytes = BigInt::to_bytes(&key_bn);
             let mut template: Vec<u8> = vec![0u8; AES_KEY_BYTES_LEN - key_bytes.len()];
             template.extend_from_slice(&key_bytes[..]);
@@ -114,13 +125,15 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
     let (head, tail) = point_vec.split_at(1);
     let y_sum = tail.iter().fold(head[0].clone(), |acc, x| acc + x);
 
-    let key_gen_parties_points_vec = (0..PARTIES)
-        .map(|i| i + 1)
-        .collect::<Vec<u16>>();
+    let key_gen_parties_points_vec = (0..PARTIES).map(|i| i + 1).collect::<Vec<u16>>();
 
     let (vss_scheme, secret_shares) = party_keys
         .phase1_verify_com_phase2_distribute(
-            &parameters, &blind_vec, &point_vec, &bc1_vec, &key_gen_parties_points_vec
+            &parameters,
+            &blind_vec,
+            &point_vec,
+            &bc1_vec,
+            &key_gen_parties_points_vec,
         )
         .expect("invalid key");
 
@@ -141,7 +154,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
                 serde_json::to_string(&aead_pack_i).unwrap(),
                 uuid.clone()
             )
-                .is_ok());
+            .is_ok());
             j += 1;
         }
     }
@@ -180,7 +193,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         serde_json::to_string(&vss_scheme).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round4_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -196,7 +209,8 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         if i == party_num_int {
             vss_scheme_vec.push(vss_scheme.clone());
         } else {
-            let vss_scheme_j: VerifiableSS<Ed25519> = serde_json::from_str(&round4_ans_vec[j]).unwrap();
+            let vss_scheme_j: VerifiableSS<Ed25519> =
+                serde_json::from_str(&round4_ans_vec[j]).unwrap();
             vss_scheme_vec.push(vss_scheme_j);
             j += 1;
         }
@@ -222,7 +236,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         serde_json::to_string(&dlog_proof).unwrap(),
         uuid.clone()
     )
-        .is_ok());
+    .is_ok());
     let round5_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -238,7 +252,8 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         if i == party_num_int {
             dlog_proof_vec.push(dlog_proof.clone());
         } else {
-            let dlog_proof_j: DLogProof<Ed25519, Sha512> = serde_json::from_str(&round5_ans_vec[j]).unwrap();
+            let dlog_proof_j: DLogProof<Ed25519, Sha512> =
+                serde_json::from_str(&round5_ans_vec[j]).unwrap();
 
             dlog_proof_vec.push(dlog_proof_j);
             j += 1;
@@ -249,7 +264,8 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         parameters.share_count as usize,
         &dlog_proof_vec,
         point_vec.len(),
-    ).expect("bad dlog proof");
+    )
+    .expect("bad dlog proof");
 
     let keygen_json = serde_json::to_string(&(
         party_keys,
@@ -259,7 +275,7 @@ pub fn run_keygen(addr: &String, keys_file_path: &String, params: &Vec<&str>) {
         vss_scheme_vec,
         y_sum,
     ))
-        .unwrap();
+    .unwrap();
 
     fs::write(keys_file_path, keygen_json).expect("Unable to save !");
 }

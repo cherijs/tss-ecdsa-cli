@@ -1,13 +1,13 @@
-use std::fs;
-use curv::arithmetic::Converter;
-use curv::BigInt;
-use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-use curv::elliptic::curves::{Ed25519, Scalar, Point};
-use multi_party_eddsa::protocols::thresholdsig::{Keys, SharedKeys};
-use serde_json::{json, Value};
 use crate::common::Params;
 use crate::eddsa::signer::update_hd_derived_public_key;
 use crate::hd_keys;
+use curv::arithmetic::Converter;
+use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
+use curv::elliptic::curves::{Ed25519, Point, Scalar};
+use curv::BigInt;
+use multi_party_eddsa::protocols::thresholdsig::{Keys, SharedKeys};
+use serde_json::{json, Value};
+use std::fs;
 
 pub mod keygen;
 pub mod signer;
@@ -18,15 +18,25 @@ pub type GE = Point<Ed25519>;
 
 pub static CURVE_NAME: &str = "EdDSA";
 
-
-pub fn sign(manager_address:String, key_file_path: String, params: Vec<&str>, message_str:String, path: &str)
-            -> Value {
+pub fn sign(
+    manager_address: String,
+    key_file_path: String,
+    params: Vec<&str>,
+    message_str: String,
+    path: &str,
+) -> Value {
     let params = Params {
         threshold: params[0].to_string(),
         parties: params[1].to_string(),
     };
 
-    let (signature, y_sum) = signer::run_signer(manager_address, key_file_path, params, message_str.clone(), path);
+    let (signature, y_sum) = signer::run_signer(
+        manager_address,
+        key_file_path,
+        params,
+        message_str.clone(),
+        path,
+    );
 
     let ret_dict = json!({
         "r": (BigInt::from_bytes(&(signature.R.to_bytes(false)))).to_str_radix(16),
@@ -42,13 +52,10 @@ pub fn sign(manager_address:String, key_file_path: String, params: Vec<&str>, me
     ret_dict
 }
 
-
-pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
-
+pub fn run_pubkey(keys_file_path: &str, path: &str) -> Value {
     // Read data from keys file
-    let data = fs::read_to_string(keys_file_path).expect(
-        format!("Unable to load keys file at location: {}", keys_file_path).as_str(),
-    );
+    let data = fs::read_to_string(keys_file_path)
+        .expect(format!("Unable to load keys file at location: {}", keys_file_path).as_str());
     let (_party_keys, chain_code, _shared_keys, _party_id, _vss_scheme_vec, y_sum): (
         Keys,
         Scalar<Ed25519>,
@@ -62,7 +69,7 @@ pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
     let (_f_l_new, y_sum): (FE, GE) = match path.is_empty() {
         true => (Scalar::<Ed25519>::zero(), y_sum),
         false => {
-            let chain_code= chain_code * GE::generator();
+            let chain_code = chain_code * GE::generator();
             let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path, chain_code);
 
             let safe_public_key_child = update_hd_derived_public_key(y_sum_child);
@@ -73,9 +80,9 @@ pub fn run_pubkey(keys_file_path:&str, path:&str) -> Value {
 
     // Return pub key as x,y
     let ret_dict = json!({
-                "x": &y_sum.x_coord().unwrap().to_str_radix(16),
-                "y": &y_sum.y_coord().unwrap().to_str_radix(16),
-                "path": path,
-            });
+        "x": &y_sum.x_coord().unwrap().to_str_radix(16),
+        "y": &y_sum.y_coord().unwrap().to_str_radix(16),
+        "path": path,
+    });
     ret_dict
 }

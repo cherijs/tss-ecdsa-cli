@@ -1,21 +1,22 @@
-use std::fs;
 use curv::arithmetic::Converter;
 use curv::BigInt;
+use std::fs;
 
-use serde::{Deserialize, Serialize};
-use curv::cryptographic_primitives::secret_sharing::feldman_vss::{ShamirSecretSharing, VerifiableSS};
-use paillier::{DecryptionKey, EncryptionKey};
+use crate::ecdsa::{FE, GE};
+use curv::cryptographic_primitives::secret_sharing::feldman_vss::{
+    ShamirSecretSharing, VerifiableSS,
+};
 use curv::elliptic::curves::{Scalar, Secp256k1};
 use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{Keys, SharedKeys};
-use crate::ecdsa::{FE, GE};
-
+use paillier::{DecryptionKey, EncryptionKey};
+use serde::{Deserialize, Serialize};
 
 type OldFE = String;
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct OldGE {
     x: String,
-    y: String
+    y: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,7 +49,7 @@ fn convert_old_GE(old: &OldGE) -> GE {
 
 fn convert_old_FE(mut old: OldFE) -> FE {
     if old.len() % 2 != 0 {
-        old.insert(0,'0');
+        old.insert(0, '0');
     }
     let old_bytes = hex::decode(old).unwrap();
 
@@ -56,26 +57,27 @@ fn convert_old_FE(mut old: OldFE) -> FE {
 }
 
 fn convert_old_vss(vss: &OldVerifiableSS) -> VerifiableSS<Secp256k1> {
+    let commitments = vss.commitments.iter().map(|x| convert_old_GE(x)).collect();
 
-    let commitments = vss.commitments
-        .iter()
-        .map(|x| convert_old_GE(x))
-        .collect();
-
-    VerifiableSS{
+    VerifiableSS {
         parameters: vss.clone().parameters,
-        commitments
+        commitments,
     }
 }
 
 pub fn convert_store_file(keys_file_path: String, destination_path: String) {
-
     // Read data from keys file
-    let data = fs::read_to_string(keys_file_path.clone()).expect(
-        format!("Unable to load keys file at location: {}", keys_file_path).as_str(),
-    );
+    let data = fs::read_to_string(keys_file_path.clone())
+        .expect(format!("Unable to load keys file at location: {}", keys_file_path).as_str());
 
-    let (old_party_keys, old_shared_keys, party_id, old_vss_scheme_vec, paillier_key_vector, old_y_sum): (
+    let (
+        old_party_keys,
+        old_shared_keys,
+        party_id,
+        old_vss_scheme_vec,
+        paillier_key_vector,
+        old_y_sum,
+    ): (
         OldKeys,
         OldSharedKeys,
         u16,
@@ -84,22 +86,21 @@ pub fn convert_store_file(keys_file_path: String, destination_path: String) {
         OldGE,
     ) = serde_json::from_str(&data).unwrap();
 
-    
     let party_keys: Keys = Keys {
         u_i: convert_old_FE(old_party_keys.u_i),
         y_i: convert_old_GE(&old_party_keys.y_i),
         dk: old_party_keys.dk,
         ek: old_party_keys.ek,
-        party_index: old_party_keys.party_index
+        party_index: old_party_keys.party_index,
     };
-    
+
     let shared_keys = SharedKeys {
         y: convert_old_GE(&old_shared_keys.y),
-        x_i: convert_old_FE(old_shared_keys.x_i)
+        x_i: convert_old_FE(old_shared_keys.x_i),
     };
 
     let public_key = convert_old_GE(&old_y_sum);
-    let vss_scheme_vector:Vec<VerifiableSS<Secp256k1>>  = old_vss_scheme_vec
+    let vss_scheme_vector: Vec<VerifiableSS<Secp256k1>> = old_vss_scheme_vec
         .iter()
         .map(|x| convert_old_vss(x))
         .collect();
@@ -120,7 +121,7 @@ pub fn convert_store_file(keys_file_path: String, destination_path: String) {
         paillier_key_vector,
         public_key,
     ))
-        .unwrap();
+    .unwrap();
     println!("Keys data written to file: {:?}", destination_path);
     fs::write(&destination_path, keygen_json).expect("Unable to save !");
 }

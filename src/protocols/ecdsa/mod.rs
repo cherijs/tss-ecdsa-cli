@@ -1,6 +1,6 @@
+pub mod curv7_conversion;
 pub mod keygen;
 pub mod signer;
-pub mod curv7_conversion;
 
 extern crate serde_json;
 use serde_json::{json, Value};
@@ -14,15 +14,9 @@ use crate::common::{hd_keys, Params};
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
 use paillier::EncryptionKey;
 
-use curv::{
-    arithmetic::traits::Converter,
-    BigInt,
-};
 use curv::elliptic::curves::{Point, Scalar, Secp256k1};
-use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
-    Keys, SharedKeys
-};
-
+use curv::{arithmetic::traits::Converter, BigInt};
+use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{Keys, SharedKeys};
 
 //pub type Key = String;
 pub static CURVE_NAME: &str = "ECDSA";
@@ -65,22 +59,27 @@ pub fn check_sig(
     assert!(is_correct);
 }
 
-
 pub fn run_pubkey_or_sign(
-    action:&str,
-    keysfile_path:&str,
-    path:&str,
-    message_str:&str,
-    manager_addr:String,
-    params:Vec<&str>,
-    chain_code_hex: &str
-) -> Value
-{
+    action: &str,
+    keysfile_path: &str,
+    path: &str,
+    message_str: &str,
+    manager_addr: String,
+    params: Vec<&str>,
+    chain_code_hex: &str,
+) -> Value {
     // Read data from keys file
-    let data = fs::read_to_string(keysfile_path).expect(
-        format!("Unable to load keys file at location: {}", keysfile_path).as_str(),
-    );
-    let (party_keys, mut chain_code, shared_keys, party_id, mut vss_scheme_vec, paillier_key_vector, y_sum): (
+    let data = fs::read_to_string(keysfile_path)
+        .expect(format!("Unable to load keys file at location: {}", keysfile_path).as_str());
+    let (
+        party_keys,
+        mut chain_code,
+        shared_keys,
+        party_id,
+        mut vss_scheme_vec,
+        paillier_key_vector,
+        y_sum,
+    ): (
         Keys,
         Scalar<Secp256k1>,
         SharedKeys,
@@ -91,13 +90,15 @@ pub fn run_pubkey_or_sign(
     ) = serde_json::from_str(&data).unwrap();
 
     if !chain_code_hex.is_empty() {
-        chain_code = Scalar::<Secp256k1>::from_bytes(hex::decode(chain_code_hex).unwrap().as_slice()).unwrap()
+        chain_code =
+            Scalar::<Secp256k1>::from_bytes(hex::decode(chain_code_hex).unwrap().as_slice())
+                .unwrap()
     }
     // Get root pub key or HD pub key at specified path
     let (f_l_new, y_sum) = match path.is_empty() {
         true => (Scalar::<Secp256k1>::zero(), y_sum),
         false => {
-            let chain_code= GE::generator() * chain_code;
+            let chain_code = GE::generator() * chain_code;
             let (y_sum_child, f_l_new) = hd_keys::get_hd_key(&y_sum, path, chain_code);
             (f_l_new, y_sum_child.clone())
         }
@@ -106,13 +107,12 @@ pub fn run_pubkey_or_sign(
     // Return pub key as x,y
     let result = if action == "pubkey" {
         let ret_dict = json!({
-                    "x": &y_sum.x_coord().unwrap().to_str_radix(16),
-                    "y": &y_sum.y_coord().unwrap().to_str_radix(16),
-                    "path": path,
-                });
+            "x": &y_sum.x_coord().unwrap().to_str_radix(16),
+            "y": &y_sum.y_coord().unwrap().to_str_radix(16),
+            "path": path,
+        });
         ret_dict
-    }
-    else {
+    } else {
         // Parse message to sign
         let message = match hex::decode(message_str) {
             Ok(x) => x,

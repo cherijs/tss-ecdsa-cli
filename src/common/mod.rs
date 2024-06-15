@@ -1,25 +1,25 @@
-pub mod manager;
 pub mod hd_keys;
+pub mod manager;
 
 pub mod signing_room;
 
-use std::{thread, time, time::Duration};
 use std::time::Instant;
+use std::{thread, time, time::Duration};
 
-use aes_gcm::{Aes256Gcm, Nonce};
 use aes_gcm::aead::{Aead, NewAead};
+use aes_gcm::{Aes256Gcm, Nonce};
 
+use rand::{rngs::OsRng, RngCore};
 use reqwest::blocking::Client as RequestClient;
 use serde::{Deserialize, Serialize};
-use rand::{rngs::OsRng, RngCore};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 pub type Key = String;
 
 #[derive(Clone)]
 pub struct Client {
     client: RequestClient,
-    address: String
+    address: String,
 }
 
 #[allow(dead_code)]
@@ -35,9 +35,9 @@ pub struct AEAD {
 pub struct PartySignupRequestBody {
     pub threshold: u16,
     pub room_id: String,
-    pub party_number: u16,  // It's better to rename this to fragment_index
+    pub party_number: u16, // It's better to rename this to fragment_index
     pub party_uuid: String,
-    pub curve_name: String
+    pub curve_name: String,
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -87,7 +87,7 @@ impl Client {
     pub fn new(addr: String) -> Self {
         Self {
             client: RequestClient::new(),
-            address: addr
+            address: addr,
         }
     }
 }
@@ -122,8 +122,8 @@ pub fn aes_decrypt(key: &[u8], aead_pack: AEAD) -> Vec<u8> {
 }
 
 pub fn postb<T>(client: &Client, path: &str, body: T) -> Option<String>
-    where
-        T: serde::ser::Serialize,
+where
+    T: serde::ser::Serialize,
 {
     let addr = client.address.clone();
     let retries = 3;
@@ -185,7 +185,9 @@ pub fn poll_for_broadcasts(
 ) -> Vec<String> {
     let mut ans_vec = Vec::new();
     let timeout = std::env::var("TSS_CLI_POLL_TIMEOUT")
-        .unwrap_or("30".to_string()).parse::<u64>().unwrap();
+        .unwrap_or("30".to_string())
+        .parse::<u64>()
+        .unwrap();
     for i in 1..=n {
         if i != party_num {
             let key = format!("{}-{}-{}", i, round, sender_uuid);
@@ -201,14 +203,22 @@ pub fn poll_for_broadcasts(
                         ans_vec.push(answer.value);
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
-                    },
-                    Err(ManagerError{error: _manager_error}) => {
+                    }
+                    Err(ManagerError {
+                        error: _manager_error,
+                    }) => {
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, _manager_error);
+                        println!(
+                            "[{:?}] party {:?} => party {:?}, error: {:?}",
+                            round, i, party_num, _manager_error
+                        );
                     }
                 }
                 if start_time.elapsed().as_secs() > timeout {
-                    panic!("Polling timed out! No response received from party number {:?}", i);
+                    panic!(
+                        "Polling timed out! No response received from party number {:?}",
+                        i
+                    );
                 };
 
                 thread::sleep(delay);
@@ -228,7 +238,9 @@ pub fn poll_for_p2p(
 ) -> Vec<String> {
     let mut ans_vec = Vec::new();
     let timeout = std::env::var("TSS_CLI_POLL_TIMEOUT")
-        .unwrap_or("30".to_string()).parse::<u64>().unwrap();
+        .unwrap_or("30".to_string())
+        .parse::<u64>()
+        .unwrap();
     for i in 1..=n {
         if i != party_num {
             let key = format!("{}-{}-{}-{}", i, party_num, round, sender_uuid);
@@ -246,13 +258,18 @@ pub fn poll_for_p2p(
                         ans_vec.push(answer.value);
                         println!("[{:?}] party {:?} => party {:?}", round, i, party_num);
                         break;
-                    },
-                    Err(ManagerError{error: manager_error}) => {
+                    }
+                    Err(ManagerError {
+                        error: manager_error,
+                    }) => {
                         if start_time.elapsed().as_secs() > timeout {
                             panic!("Polling timed out! No response received in {:?} from party number {:?}. Error: {:?}", round, i, manager_error);
                         };
                         #[cfg(debug_assertions)]
-                        println!("[{:?}] party {:?} => party {:?}, error: {:?}", round, i, party_num, manager_error);
+                        println!(
+                            "[{:?}] party {:?} => party {:?}, error: {:?}",
+                            round, i, party_num, manager_error
+                        );
                     }
                 }
             }
@@ -261,7 +278,11 @@ pub fn poll_for_p2p(
     ans_vec
 }
 
-pub fn keygen_signup(client: &Client, params: &Params, curve_name: &str) -> Result<PartySignup, ()> {
+pub fn keygen_signup(
+    client: &Client,
+    params: &Params,
+    curve_name: &str,
+) -> Result<PartySignup, ()> {
     let res_body = postb(&client, "signupkeygen", (params, curve_name)).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
@@ -271,35 +292,58 @@ pub fn keygen_signup(client: &Client, params: &Params, curve_name: &str) -> Resu
     serde_json::from_str(&res_body).unwrap()
 }*/
 
-pub fn signup(path: &str, client: &Client, params: &Params, room_id: String, party_id: u16, curve_name: &str) -> Result<(PartySignup, u16), ()> {
-    let mut request_body = PartySignupRequestBody{
+pub fn signup(
+    path: &str,
+    client: &Client,
+    params: &Params,
+    room_id: String,
+    party_id: u16,
+    curve_name: &str,
+) -> Result<(PartySignup, u16), ()> {
+    let mut request_body = PartySignupRequestBody {
         threshold: params.threshold.parse::<u16>().unwrap(),
         room_id: room_id.clone(),
         party_number: party_id,
         party_uuid: "".to_string(),
-        curve_name: curve_name.to_string()
+        curve_name: curve_name.to_string(),
     };
     let delay = time::Duration::from_millis(100);
     let timeout = std::env::var("TSS_CLI_SIGNUP_TIMEOUT")
-        .unwrap_or("30".to_string()).parse::<u64>().unwrap();
+        .unwrap_or("30".to_string())
+        .parse::<u64>()
+        .unwrap();
     let res_body = postb(&client, path, request_body.clone()).unwrap();
     let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
     let (output, total_parties) = match answer {
-        Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
-            println!("Signed up, party order: {:?}, joined so far: {:?}, waiting for room uuid", party_order, total_joined);
+        Ok(SigningPartySignup {
+            party_order,
+            party_uuid,
+            room_uuid,
+            total_joined,
+        }) => {
+            println!(
+                "Signed up, party order: {:?}, joined so far: {:?}, waiting for room uuid",
+                party_order, total_joined
+            );
             let mut now = time::SystemTime::now();
             let mut last_total_joined = total_joined;
             let mut party_signup = PartySignup {
                 number: party_order,
-                uuid: room_uuid
+                uuid: room_uuid,
             };
             while party_signup.uuid.is_empty() {
                 thread::sleep(delay);
                 request_body.party_uuid = party_uuid.clone();
                 let res_body = postb(&client, path, request_body.clone()).unwrap();
-                let answer: Result<SigningPartySignup, ManagerError> = serde_json::from_str(&res_body).unwrap();
+                let answer: Result<SigningPartySignup, ManagerError> =
+                    serde_json::from_str(&res_body).unwrap();
                 match answer {
-                    Ok(SigningPartySignup{party_order, party_uuid, room_uuid, total_joined}) => {
+                    Ok(SigningPartySignup {
+                        party_order,
+                        party_uuid,
+                        room_uuid,
+                        total_joined,
+                    }) => {
                         request_body.party_uuid = party_uuid;
                         if party_signup.number != party_order {
                             println!("Order is changed: {:?}", party_order);
@@ -312,29 +356,30 @@ pub fn signup(path: &str, client: &Client, params: &Params, room_id: String, par
                             //Reset the signup timeout
                             now = time::SystemTime::now();
                         }
-                    },
-                    Err(ManagerError{error}) => {
+                    }
+                    Err(ManagerError { error }) => {
                         panic!("{}", error);
                     }
                 };
-                if now.elapsed().unwrap().as_secs() > timeout{
+                if now.elapsed().unwrap().as_secs() > timeout {
                     break;
                 }
             }
             if party_signup.uuid.is_empty() {
-                panic!("Could not get room uuid after {:?} seconds of tries", timeout);
+                panic!(
+                    "Could not get room uuid after {:?} seconds of tries",
+                    timeout
+                );
             }
             (party_signup, last_total_joined)
-        },
-        Err(ManagerError{error}) => {
+        }
+        Err(ManagerError { error }) => {
             panic!("{}", error);
         }
     };
 
     return Ok((output, total_parties));
 }
-
-
 
 pub fn sha256_digest(input: &[u8]) -> String {
     let mut sha256 = Sha256::new();

@@ -1,15 +1,16 @@
-
-
-use curv::arithmetic::{Converter, BasicOps, One};
-use curv::BigInt;
+use curv::arithmetic::{BasicOps, Converter, One};
 use curv::elliptic::curves::{Curve, Point, Scalar};
+use curv::BigInt;
 
 use curv::cryptographic_primitives::hashing::HmacExt;
 use hmac::Hmac;
-use sha2::{Sha512};
+use sha2::Sha512;
 
-
-pub fn get_hd_key<E: Curve>(y_sum: &Point<E>, path: &str, chain_code: Point<E>) -> (Point<E>, Scalar<E>) {
+pub fn get_hd_key<E: Curve>(
+    y_sum: &Point<E>,
+    path: &str,
+    chain_code: Point<E>,
+) -> (Point<E>, Scalar<E>) {
     let path_vector: Vec<BigInt> = path
         .split('/')
         .map(|s| BigInt::from_str_radix(s.trim(), 10).unwrap())

@@ -9,10 +9,10 @@ extern crate paillier;
 extern crate reqwest;
 extern crate serde_json;
 
-use std::env;
 use clap::{App, AppSettings, Arg, SubCommand};
+use std::env;
 
-use common::{manager, hd_keys};
+use common::{hd_keys, manager};
 
 use protocols::ecdsa;
 use protocols::eddsa;
@@ -131,7 +131,9 @@ fn main() {
                 Ok(val) => val,
                 Err(_e) => "".to_string(),
             };
-            let chain_code = sub_matches.value_of("chain_code").unwrap_or(chain_code_in_env.as_str());
+            let chain_code = sub_matches
+                .value_of("chain_code")
+                .unwrap_or(chain_code_in_env.as_str());
 
             let manager_addr = sub_matches
                 .value_of("manager_addr")
@@ -145,13 +147,27 @@ fn main() {
                 .collect();
             let action = matches.subcommand_name().unwrap();
             let result = match curve {
-                "ecdsa" => ecdsa::run_pubkey_or_sign(action, keysfile_path, path, message_str, manager_addr, params, chain_code),
+                "ecdsa" => ecdsa::run_pubkey_or_sign(
+                    action,
+                    keysfile_path,
+                    path,
+                    message_str,
+                    manager_addr,
+                    params,
+                    chain_code,
+                ),
                 "eddsa" => match action {
-                    "sign" => eddsa::sign(manager_addr, keysfile_path.to_string(), params, message_str.to_string(), path),
+                    "sign" => eddsa::sign(
+                        manager_addr,
+                        keysfile_path.to_string(),
+                        params,
+                        message_str.to_string(),
+                        path,
+                    ),
                     "pubkey" => eddsa::run_pubkey(keysfile_path, path),
-                    _ => serde_json::Value::String("".to_string())
-                }
-                _ => serde_json::Value::String("".to_string())
+                    _ => serde_json::Value::String("".to_string()),
+                },
+                _ => serde_json::Value::String("".to_string()),
             };
             println!("{}", result.to_string());
         }
@@ -175,11 +191,13 @@ fn main() {
                 "eddsa" => eddsa::keygen::run_keygen(&addr, &keysfile_path, &params),
                 _ => {}
             }
-
         }
         ("convert_curv_07_to_09", Some(sub_matches)) => {
             let source_path = sub_matches.value_of("input_file").unwrap_or("").to_string();
-            let destination_path = sub_matches.value_of("output_file").unwrap_or("").to_string();
+            let destination_path = sub_matches
+                .value_of("output_file")
+                .unwrap_or("")
+                .to_string();
 
             ecdsa::curv7_conversion::convert_store_file(source_path, destination_path);
         }

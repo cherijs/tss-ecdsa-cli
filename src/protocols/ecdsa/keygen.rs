@@ -1,5 +1,6 @@
 use std::{fs, time};
 
+use curv::elliptic::curves::{Scalar, Secp256k1};
 use curv::{
     arithmetic::traits::Converter,
     cryptographic_primitives::{
@@ -7,16 +8,18 @@ use curv::{
     },
     BigInt,
 };
-use curv::elliptic::curves::{Scalar, Secp256k1};
 use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
     KeyGenBroadcastMessage1, KeyGenDecommitMessage1, Keys, Parameters,
 };
 use paillier::EncryptionKey;
-use sha2::{Sha256};
+use sha2::Sha256;
 
-use crate::common::{aes_decrypt, aes_encrypt, broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, Params, PartySignup, AEAD, Client, keygen_signup};
-use crate::protocols::{generate_shared_chain_code};
+use crate::common::{
+    aes_decrypt, aes_encrypt, broadcast, keygen_signup, poll_for_broadcasts, poll_for_p2p, sendp2p,
+    Client, Params, PartySignup, AEAD,
+};
 use crate::ecdsa::{CURVE_NAME, FE, GE};
+use crate::protocols::generate_shared_chain_code;
 
 pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
     let THRESHOLD: u16 = params[0].parse::<u16>().unwrap();
@@ -41,7 +44,10 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
         PartySignup { number, uuid } => (number, uuid),
     };
 
-    println!("number: {:?}, uuid: {:?}, curve: {:?}", party_num_int, uuid, CURVE_NAME);
+    println!(
+        "number: {:?}, uuid: {:?}, curve: {:?}",
+        party_num_int, uuid, CURVE_NAME
+    );
 
     let party_keys = Keys::create(party_num_int);
 
@@ -51,7 +57,7 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
         PARTIES,
         uuid.clone(),
         delay,
-        params.share_count as usize
+        params.share_count as usize,
     );
 
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
@@ -111,7 +117,11 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
             let decom_j: KeyGenDecommitMessage1 = serde_json::from_str(&round2_ans_vec[j]).unwrap();
             point_vec.push(decom_j.clone().y_i);
             decom_vec.push(decom_j.clone());
-            enc_keys.push((decom_j.clone().y_i * party_keys.clone().u_i).x_coord().unwrap());
+            enc_keys.push(
+                (decom_j.clone().y_i * party_keys.clone().u_i)
+                    .x_coord()
+                    .unwrap(),
+            );
             j = j + 1;
         }
     }
@@ -197,7 +207,8 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
         if i == party_num_int {
             vss_scheme_vec.push(vss_scheme.clone());
         } else {
-            let vss_scheme_j: VerifiableSS<Secp256k1> = serde_json::from_str(&round4_ans_vec[j]).unwrap();
+            let vss_scheme_j: VerifiableSS<Secp256k1> =
+                serde_json::from_str(&round4_ans_vec[j]).unwrap();
             vss_scheme_vec.push(vss_scheme_j);
             j += 1;
         }
@@ -237,7 +248,8 @@ pub fn run_keygen(addr: &String, keysfile_path: &String, params: &Vec<&str>) {
         if i == party_num_int {
             dlog_proof_vec.push(dlog_proof.clone());
         } else {
-            let dlog_proof_j: DLogProof<Secp256k1, Sha256> = serde_json::from_str(&round5_ans_vec[j]).unwrap();
+            let dlog_proof_j: DLogProof<Secp256k1, Sha256> =
+                serde_json::from_str(&round5_ans_vec[j]).unwrap();
             dlog_proof_vec.push(dlog_proof_j);
             j += 1;
         }

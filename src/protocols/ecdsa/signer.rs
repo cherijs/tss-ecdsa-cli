@@ -10,22 +10,23 @@ use std::time;
 use curv::cryptographic_primitives::proofs::sigma_correct_homomorphic_elgamal_enc::HomoELGamalProof;
 use curv::cryptographic_primitives::proofs::sigma_dlog::DLogProof;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
+use curv::elliptic::curves::{Point, Secp256k1};
 use curv::{
+    arithmetic::{BasicOps, Converter, Modulo},
     BigInt,
-    arithmetic::{BasicOps, Converter, Modulo}
 };
 use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::*;
 use multi_party_ecdsa::utilities::mta::*;
+use paillier::EncryptionKey;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use curv::elliptic::curves::{Point, Secp256k1};
-use paillier::EncryptionKey;
 use sha2::Sha256;
 
+use crate::common::{
+    broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, sha256_digest, Params, PartySignup,
+};
 use crate::common::{signup, Client};
 use crate::ecdsa::{CURVE_NAME, FE, GE};
-use crate::common::{broadcast, poll_for_broadcasts, poll_for_p2p, sendp2p, Params, PartySignup, sha256_digest};
-
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
 pub struct TupleKey {
@@ -54,9 +55,10 @@ pub fn sign(
 
     // Signup
     let signup_path = "signupsign";
-    let (party_num_int, uuid, total_parties) = match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
-        (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
-    };
+    let (party_num_int, uuid, total_parties) =
+        match signup(signup_path, &client, &params, room_id, party_id, CURVE_NAME).unwrap() {
+            (PartySignup { number, uuid }, total_parties) => (number, uuid, total_parties),
+        };
 
     let debug = json!({
         "manager_addr": &addr,
@@ -199,14 +201,14 @@ pub fn sign(
                 &sign_keys.gamma_i,
                 &paillier_key_vector[signers_vec[(i - 1) as usize] as usize],
                 m_a_vec[j].clone(),
-                &[]
+                &[],
             )
             .unwrap();
             let (m_b_w, beta_wi, _, _) = MessageB::b(
                 &sign_keys.w_i,
                 &paillier_key_vector[signers_vec[(i - 1) as usize] as usize],
                 m_a_vec[j].clone(),
-                &[]
+                &[],
             )
             .unwrap();
             m_b_gamma_send_vec.push(m_b_gamma);
@@ -246,7 +248,7 @@ pub fn sign(
     let mut m_b_gamma_rec_vec: Vec<MessageB> = Vec::new();
     let mut m_b_w_rec_vec: Vec<MessageB> = Vec::new();
 
-    for i in 0..total_parties-1 {
+    for i in 0..total_parties - 1 {
         //  if signers_vec.contains(&(i as usize)) {
         let (m_b_gamma_i, m_b_w_i): (MessageB, MessageB) =
             serde_json::from_str(&round2_ans_vec[i as usize]).unwrap();
@@ -362,7 +364,8 @@ pub fn sign(
     let local_sig =
         LocalSignature::phase5_local_sig(&sign_keys.k_i, &message_bn, &R, &sigma, &y_sum);
 
-    let (phase5_com, phase_5a_decom, helgamal_proof, dlog_proof_rho) = local_sig.phase5a_broadcast_5b_zkproof();
+    let (phase5_com, phase_5a_decom, helgamal_proof, dlog_proof_rho) =
+        local_sig.phase5a_broadcast_5b_zkproof();
 
     //phase (5A)  broadcast commit
     assert!(broadcast(

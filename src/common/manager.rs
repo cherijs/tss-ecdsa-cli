@@ -1,23 +1,27 @@
 use std::sync::RwLock;
-use std::time::{Duration};
+use std::time::Duration;
 
-use rocket::{Ignite, post, Rocket, routes, State};
 use rocket::serde::json::Json;
-use serde_json::{json};
+use rocket::{post, routes, Ignite, Rocket, State};
+use serde_json::json;
 
 use ttlhashmap::TtlHashMap;
 
 use uuid::Uuid;
 
-use crate::common::{Entry, Index, Key, ManagerError, Params, PartySignup, PartySignupRequestBody, SigningPartySignup};
 use crate::common::signing_room::SigningRoom;
+use crate::common::{
+    Entry, Index, Key, ManagerError, Params, PartySignup, PartySignupRequestBody,
+    SigningPartySignup,
+};
 
-#[rocket::main]
 pub async fn run_manager() -> Result<Rocket<Ignite>, rocket::Error> {
     //     let mut my_config = Config::development();
     //     my_config.set_port(18001);
     let ttl = std::env::var("TSS_CLI_MANAGER_TTL")
-        .unwrap_or("300".to_string()).parse::<u64>().unwrap();
+        .unwrap_or("300".to_string())
+        .parse::<u64>()
+        .unwrap();
     let db: TtlHashMap<Key, String> = TtlHashMap::new(Duration::from_secs(ttl));
     let db_mtx = RwLock::new(db);
     //rocket::custom(my_config).mount("/", routes![get, set]).manage(db_mtx).launch();
@@ -75,16 +79,17 @@ fn get(
             };
             Json(Ok(entry))
         }
-        None => {
-            Json(Err(ManagerError{
-                error: "Key not found: ".to_string() + index.key.as_str()
-            }))
-        },
+        None => Json(Err(ManagerError {
+            error: "Key not found: ".to_string() + index.key.as_str(),
+        })),
     }
 }
 
 #[post("/set", format = "json", data = "<request>")]
-fn set(db_mtx: &State<RwLock<TtlHashMap<Key, String>>>, request: Json<Entry>) -> Json<Result<(), ()>> {
+fn set(
+    db_mtx: &State<RwLock<TtlHashMap<Key, String>>>,
+    request: Json<Entry>,
+) -> Json<Result<(), ()>> {
     let entry: Entry = request.0;
     let mut hm = db_mtx.write().unwrap();
     hm.insert(entry.key.clone(), entry.value.clone());
@@ -96,8 +101,8 @@ fn signup_keygen(
     db_mtx: &State<RwLock<TtlHashMap<Key, String>>>,
     request: Json<(Params, String)>,
 ) -> Json<Result<PartySignup, ()>> {
-    let parties = request.0.0.parties.parse::<u16>().unwrap();
-    let curve = &request.0.1.parse::<String>().unwrap();
+    let parties = request.0 .0.parties.parse::<u16>().unwrap();
+    let curve = &request.0 .1.parse::<String>().unwrap();
     let key = "signup-keygen-".to_string() + curve;
     let mut hm = db_mtx.write().unwrap();
 
@@ -144,7 +149,7 @@ fn signup_sign(
 
     let mut signing_room = match hm.get(&key) {
         Some(o) => serde_json::from_str(o).unwrap(),
-        None => SigningRoom::new(room_id.clone(), threshold+1),
+        None => SigningRoom::new(room_id.clone(), threshold + 1),
     };
 
     if signing_room.last_stage != "signup" {
@@ -160,25 +165,25 @@ fn signup_sign(
             });
             println!("{}", serde_json::to_string_pretty(&debug).unwrap());
             signing_room = SigningRoom::new(room_id, threshold + 1)
-        }
-        else {
-            return Json(Err(ManagerError{
-                error: "Room signup phase is terminated".to_string()
+        } else {
+            return Json(Err(ManagerError {
+                error: "Room signup phase is terminated".to_string(),
             }));
         }
     }
 
     if signing_room.is_full() && signing_room.are_all_members_active() && new_signup_request {
-        return Json(Err(ManagerError{
-            error: "Room is full, all members active".to_string()
+        return Json(Err(ManagerError {
+            error: "Room is full, all members active".to_string(),
         }));
     }
 
     let party_signup = {
         if !new_signup_request {
             if !signing_room.has_member(party_number, party_uuid) {
-                return Json(Err(ManagerError{
-                    error: "No party found with the given uuid, probably replaced due to timeout".to_string()
+                return Json(Err(ManagerError {
+                    error: "No party found with the given uuid, probably replaced due to timeout"
+                        .to_string(),
                 }));
             }
             //if signing_room.is_member_active(party_number) {
@@ -187,14 +192,17 @@ fn signup_sign(
             //Else is handled in the next block
         } else if signing_room.member_info.contains_key(&party_number) {
             if signing_room.is_member_active(party_number) {
-                return Json(Err(ManagerError{
-                    error: "Received a re-signup request for an active party. Request ignored".to_string()
+                return Json(Err(ManagerError {
+                    error: "Received a re-signup request for an active party. Request ignored"
+                        .to_string(),
                 }));
             }
-            println!("Received a re-signup request for a timed-out party {:?}, thus UUID is renewed", party_number);
+            println!(
+                "Received a re-signup request for a timed-out party {:?}, thus UUID is renewed",
+                party_number
+            );
             signing_room.replace_party(party_number)
-        }
-        else {
+        } else {
             signing_room.add_party(party_number)
         }
     };
